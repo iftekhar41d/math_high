@@ -19,3 +19,6 @@ api/data/*.db-journal
 # OS / editor
 .DS_Store
 .vscode/
+
+# Local-only ops scripts (hardcode this deployment's VPS details)
+deploy/check-vps-usage.sh
