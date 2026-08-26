@@ -41,9 +41,9 @@ Visit http://localhost:5173.
 On a fresh Ubuntu/Debian VPS, as a non-root user with sudo access:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/<you>/<repo>/main/deploy/setup-vps.sh -o setup-vps.sh
+curl -fsSL https://raw.githubusercontent.com/iftekhar41d/math_high/main/deploy/setup-vps.sh -o setup-vps.sh
 chmod +x setup-vps.sh
-./setup-vps.sh git@github.com:<you>/<repo>.git your-domain.com
+./setup-vps.sh https://github.com/iftekhar41d/math_high.git math.mentisq.com
 ```
 
 This installs Python, Node.js, and nginx; clones the repo; sets up the API's venv; builds the frontend; installs and starts the `math-high-api` systemd service; configures the nginx site; and grants the deploy user passwordless sudo scoped to *only* `systemctl restart math-high-api` and `systemctl reload nginx` (needed for CI/CD to restart the app non-interactively — nothing broader).
@@ -52,7 +52,7 @@ Make sure your domain's DNS A record points at the VPS, then enable HTTPS:
 
 ```bash
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d your-domain.com
+sudo certbot --nginx -d math.mentisq.com
 ```
 
 ### GitHub Actions CI/CD
