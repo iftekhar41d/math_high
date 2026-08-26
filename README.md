@@ -36,26 +36,56 @@ Visit http://localhost:5173.
 
 ## Deploying to a VPS
 
-### One-time server setup
+### 0. Current deployment
 
-On a fresh Ubuntu/Debian VPS, as a non-root user with sudo access:
+| | |
+|---|---|
+| Host | `mentisq-dreamit` (`202.37.74.65`), Ubuntu 22.04 LTS |
+| Domain | https://math.mentisq.com (TLS via Let's Encrypt/certbot, auto-renews; HTTP redirects to HTTPS) |
+| Deploy user | `deploy`, key-only for app deploys, sudo scoped to just `systemctl restart math-high-api` / `systemctl reload nginx` |
+| App dir | `/home/deploy/math-high` |
+| Repo | https://github.com/iftekhar41d/math_high (public) |
+
+The steps below are what was actually run to get there, kept general so the same flow reproduces on a new VPS.
+
+### 1. Bootstrap SSH key access
+
+A fresh VPS typically only has password login. Generate a dedicated deploy key (no passphrase, so CI can use it non-interactively) and install it:
 
 ```bash
+ssh-keygen -t ed25519 -f ~/.ssh/math_high_deploy -N "" -C "math-high-deploy"
+ssh-copy-id -i ~/.ssh/math_high_deploy.pub deploy@<vps-ip>   # prompts once for the account password
+ssh -i ~/.ssh/math_high_deploy deploy@<vps-ip> echo ok       # confirm key-based login works
+```
+
+This only touches `~/.ssh/authorized_keys` for the `deploy` user — it doesn't disable password authentication, so password login stays available as a fallback unless you deliberately turn it off in `sshd_config` later.
+
+### 2. Run the server setup script
+
+`setup-vps.sh` needs `sudo` for package installs, the systemd unit, and the nginx site — none of which can be scripted through an interactive password prompt over SSH. Either run it yourself (typing the sudo password at each prompt), or, for unattended setup, grant the `deploy` user temporary passwordless sudo, run the script, then revoke it:
+
+```bash
+# on the VPS, or via ssh -i ~/.ssh/math_high_deploy deploy@<vps-ip>
+echo 'deploy ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/91-temp-full-setup
+sudo chmod 440 /etc/sudoers.d/91-temp-full-setup
+
 curl -fsSL https://raw.githubusercontent.com/iftekhar41d/math_high/main/deploy/setup-vps.sh -o setup-vps.sh
 chmod +x setup-vps.sh
 ./setup-vps.sh https://github.com/iftekhar41d/math_high.git math.mentisq.com
+
+sudo rm -f /etc/sudoers.d/91-temp-full-setup   # setup-vps.sh already installed the narrow rule it actually needs
 ```
 
 This installs Python, Node.js, and nginx; clones the repo; sets up the API's venv; builds the frontend; installs and starts the `math-high-api` systemd service; configures the nginx site; and grants the deploy user passwordless sudo scoped to *only* `systemctl restart math-high-api` and `systemctl reload nginx` (needed for CI/CD to restart the app non-interactively — nothing broader).
 
-Make sure your domain's DNS A record points at the VPS, then enable HTTPS:
+Once DNS for your domain resolves to the VPS, enable HTTPS:
 
 ```bash
 sudo apt-get install -y certbot python3-certbot-nginx
 sudo certbot --nginx -d math.mentisq.com
 ```
 
-### GitHub Actions CI/CD
+### 3. GitHub Actions CI/CD
 
 `.github/workflows/deploy.yml` SSHes into the VPS on every push to `main` and runs: `git reset --hard origin/main`, reinstalls Python/Node dependencies, rebuilds the frontend, then restarts the API service and reloads nginx.
 
@@ -65,11 +95,11 @@ Add these **repository secrets** (Settings → Secrets and variables → Actions
 |---------------|---------------------------------------------------------------------|
 | `VPS_HOST`    | VPS IP or hostname                                                  |
 | `VPS_USER`    | SSH user (the one `setup-vps.sh` ran as)                            |
-| `VPS_SSH_KEY` | Private key for that user (add the matching public key to the VPS's `~/.ssh/authorized_keys`) |
+| `VPS_SSH_KEY` | Private key generated in step 1 (`~/.ssh/math_high_deploy`, the whole file including the `BEGIN`/`END` lines) |
 | `VPS_PORT`    | SSH port, optional (defaults to 22)                                 |
 | `APP_DIR`     | Absolute path to the cloned repo on the VPS, e.g. `/home/deploy/math-high` |
 
-Push to `main` and the workflow deploys automatically. Check progress under the repo's **Actions** tab.
+Push to `main` and the workflow deploys automatically. Check progress under the repo's **Actions** tab, or `gh run list` / `gh run watch` if you have the GitHub CLI authenticated.
 
 ## Migrating from SQLite to Postgres later
 
