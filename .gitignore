@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+web/dist/
+
+# Env / secrets
+.env
+*.local
+
+# SQLite data
+api/data/*.db
+api/data/*.db-journal
+
+# OS / editor
+.DS_Store
+.vscode/
