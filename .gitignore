@@ -20,5 +20,15 @@ api/data/*.db-journal
 .DS_Store
 .vscode/
 
+# Agent tooling
+.agents/
+.claude/
+.scratch/
+docs/
+CONTEXT.md
+skills-lock.json
+specification.md
+# NB: .github/ (deploy workflow) and CLAUDE.md (repo guidance) stay tracked.
+
 # Local-only ops scripts (hardcode this deployment's VPS details)
 deploy/check-vps-usage.sh

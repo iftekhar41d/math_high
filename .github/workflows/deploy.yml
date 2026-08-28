@@ -23,6 +23,7 @@ jobs:
 
             cd api
             .venv/bin/pip install -r requirements.txt
+            .venv/bin/alembic upgrade head
 
             cd ../web
             npm install

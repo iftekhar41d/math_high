@@ -1,25 +1,16 @@
 import os
-from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import Base, engine
-from app.routers import items
+from app.routers import meta
 
 # Only needed for local dev where the web dev server runs on a different
 # origin/port. In production, nginx proxies /api on the same origin as the
 # web app, so no CORS is required there.
 DEV_ORIGINS = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
-    yield
-
-
-app = FastAPI(title="math-high API", lifespan=lifespan)
+app = FastAPI(title="MentisQ API")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,9 +20,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(items.router)
+app.include_router(meta.router)
 
 
 @app.get("/health")
 def health():
+    """Liveness probe — no dependencies, no DB. See `/meta` for a real round trip."""
     return {"status": "ok"}

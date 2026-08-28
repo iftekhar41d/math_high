@@ -1,17 +1,10 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 
-class ItemCreate(BaseModel):
-    name: str
-    description: str | None = None
-
-
-class ItemRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    name: str
-    description: str | None
-    created_at: datetime
+class MetaResponse(BaseModel):
+    app: str
+    environment: str
+    server_time: datetime
+    database: str

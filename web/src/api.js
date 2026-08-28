@@ -14,9 +14,5 @@ async function request(path, options = {}) {
   return res.json()
 }
 
-export const listItems = () => request('/items')
-
-export const createItem = (item) =>
-  request('/items', { method: 'POST', body: JSON.stringify(item) })
-
-export const deleteItem = (id) => request(`/items/${id}`, { method: 'DELETE' })
+// The walking-skeleton round trip: proves web -> nginx -> API -> DB.
+export const getMeta = () => request('/meta')

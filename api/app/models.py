@@ -1,17 +1,10 @@
-from datetime import datetime, timezone
+"""SQLAlchemy models.
 
-from sqlalchemy import DateTime, Integer, String
-from sqlalchemy.orm import Mapped, mapped_column
+Empty in the walking skeleton — the placeholder `Item` scaffold has been
+removed and the Phase 1 domain tables (`User`, `YearLevel`, `Subject`, `Unit`,
+`Topic`, ...) arrive with their own tickets. Alembic is the schema source of
+truth (`migrations/`); this module is imported by `migrations/env.py` so that
+`--autogenerate` sees every model's metadata.
+"""
 
-from app.database import Base
-
-
-class Item(Base):
-    __tablename__ = "items"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(200), nullable=False)
-    description: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
+from app.database import Base  # noqa: F401  (re-exported for migrations/env.py)

@@ -22,6 +22,7 @@ deploy/ VPS setup script, systemd unit, nginx site config
 cd api
 python -m venv .venv && .venv/Scripts/activate   # or source .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
+alembic upgrade head                              # build the SQLite schema (creates data/app.db)
 uvicorn app.main:app --reload
 
 # Web (separate terminal)
@@ -35,6 +36,9 @@ Vite's dev server proxies `/api/*` to `http://localhost:8000` (see `web/vite.con
 Visit http://localhost:5173.
 
 ## Deploying to a VPS
+
+Full detail — topology, config vars, HTTPS, CI/CD, server layout, troubleshooting —
+is in [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md). Quick version below.
 
 ### 0. Current deployment
 
@@ -62,32 +66,49 @@ This only touches `~/.ssh/authorized_keys` for the `deploy` user — it doesn't 
 
 ### 2. Run the server setup script
 
-`setup-vps.sh` needs `sudo` for package installs, the systemd unit, and the nginx site — none of which can be scripted through an interactive password prompt over SSH. Either run it yourself (typing the sudo password at each prompt), or, for unattended setup, grant the `deploy` user temporary passwordless sudo, run the script, then revoke it:
+`setup-vps.sh` reads its settings — `DOMAIN`, `REPO_URL`, `APP_DIR`,
+`LETSENCRYPT_EMAIL` — from a CONFIG block at the top of the script, each with a
+default. Override any of them per run with a positional arg **or** an env var of
+the same name (arg wins):
+
+```bash
+./setup-vps.sh                                 # baked-in defaults (this deployment)
+./setup-vps.sh app.example.com                 # just a different domain
+DOMAIN=app.example.com \
+  REPO_URL=https://github.com/you/fork.git \
+  LETSENCRYPT_EMAIL=you@example.com ./setup-vps.sh
+```
+
+`setup-vps.sh` needs `sudo` for package installs, the systemd unit, and the nginx site — none of which can be scripted through an interactive password prompt over SSH. Either run it yourself (typing the sudo password at each prompt), or, for unattended setup, grant the deploy user temporary passwordless sudo, run the script, then revoke it:
 
 ```bash
 # on the VPS, or via ssh -i ~/.ssh/math_high_deploy deploy@<vps-ip>
-echo 'deploy ALL=(ALL) NOPASSWD:ALL' | sudo tee /etc/sudoers.d/91-temp-full-setup
+echo "$(whoami) ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/91-temp-full-setup
 sudo chmod 440 /etc/sudoers.d/91-temp-full-setup
 
 curl -fsSL https://raw.githubusercontent.com/iftekhar41d/math_high/main/deploy/setup-vps.sh -o setup-vps.sh
 chmod +x setup-vps.sh
-./setup-vps.sh https://github.com/iftekhar41d/math_high.git math.mentisq.com
+LETSENCRYPT_EMAIL=you@example.com ./setup-vps.sh app.example.com
 
 sudo rm -f /etc/sudoers.d/91-temp-full-setup   # setup-vps.sh already installed the narrow rule it actually needs
 ```
 
-This installs Python, Node.js, and nginx; clones the repo; sets up the API's venv; builds the frontend; installs and starts the `math-high-api` systemd service; configures the nginx site; and grants the deploy user passwordless sudo scoped to *only* `systemctl restart math-high-api` and `systemctl reload nginx` (needed for CI/CD to restart the app non-interactively — nothing broader).
+This installs Python, Node.js, and nginx; clones the repo; sets up the API's venv; builds the frontend; installs and starts the `math-high-api` systemd service; configures the nginx site; grants the deploy user passwordless sudo scoped to *only* `systemctl restart math-high-api` and `systemctl reload nginx` (needed for CI/CD to restart the app non-interactively — nothing broader); and, when `LETSENCRYPT_EMAIL` is set and the domain already resolves to the VPS, runs certbot to provision HTTPS non-interactively (HTTP → HTTPS redirect included).
 
-Once DNS for your domain resolves to the VPS, enable HTTPS:
+Re-running the script on an already-provisioned host is safe — it will not
+overwrite a Certbot-managed nginx config unless you pass `FORCE_NGINX=1`.
+
+If you left `LETSENCRYPT_EMAIL` unset, or DNS wasn't pointing at the VPS yet,
+enable HTTPS later with:
 
 ```bash
 sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d math.mentisq.com
+sudo certbot --nginx -d <your-domain>
 ```
 
 ### 3. GitHub Actions CI/CD
 
-`.github/workflows/deploy.yml` SSHes into the VPS on every push to `main` and runs: `git reset --hard origin/main`, reinstalls Python/Node dependencies, rebuilds the frontend, then restarts the API service and reloads nginx.
+`.github/workflows/deploy.yml` SSHes into the VPS on every push to `main` and runs: `git reset --hard origin/main`, reinstalls Python/Node dependencies, runs `alembic upgrade head`, rebuilds the frontend, then restarts the API service and reloads nginx.
 
 Add these **repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -105,6 +126,7 @@ Push to `main` and the workflow deploys automatically. Check progress under the 
 
 1. Install Postgres on the VPS (`sudo apt-get install postgresql`) or point at a managed instance.
 2. Add `psycopg[binary]` to `api/requirements.txt` and reinstall (`.venv/bin/pip install -r requirements.txt`).
-3. Add an `Environment=DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app` line to `/etc/systemd/system/math-high-api.service`, then `sudo systemctl daemon-reload && sudo systemctl restart math-high-api`.
+3. Add an `Environment=DATABASE_URL=postgresql+psycopg://app:app@localhost:5432/app` line to `/etc/systemd/system/math-high-api.service`.
+4. With that `DATABASE_URL` set, run `alembic upgrade head` from `api/` to build the schema on Postgres, then `sudo systemctl daemon-reload && sudo systemctl restart math-high-api`.
 
-No application code changes needed — `api/app/database.py` reads `DATABASE_URL` directly, defaulting to the local SQLite file when unset.
+No application code changes needed — `api/app/database.py` and `api/migrations/env.py` both read `DATABASE_URL` directly, defaulting to the local SQLite file when unset. The Alembic migrations are written portably (association tables, string enums) so they replay against Postgres.

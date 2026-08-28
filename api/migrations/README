@@ -1,0 +1,16 @@
+Alembic migrations — the schema source of truth for this project.
+
+Run everything from inside `api/` (so `app` is importable and DATABASE_URL
+resolves the same way the app resolves it):
+
+    alembic upgrade head                 # build / update the schema
+    alembic revision --autogenerate -m "add users table"
+    alembic downgrade -1                 # roll back one revision
+    alembic current                      # show the applied revision
+
+env.py reads DATABASE_URL from the environment (default: sqlite:///./data/app.db,
+matching app/database.py) and targets Base.metadata via `import app.models`.
+SQLite migrations run in batch mode because SQLite cannot ALTER columns in place.
+
+The deploy workflow runs `alembic upgrade head` between `pip install` and the
+service restart; setup-vps.sh runs it during first provisioning.

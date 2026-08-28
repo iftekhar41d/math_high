@@ -1,0 +1,5 @@
+# Test-only dependencies. Not installed on the VPS (CI/CD installs
+# requirements.txt only). Install locally with:
+#   pip install -r requirements.txt -r requirements-dev.txt
+-r requirements.txt
+pytest==8.3.4
