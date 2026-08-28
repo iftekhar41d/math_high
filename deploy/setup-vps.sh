@@ -77,6 +77,32 @@ cd "$APP_DIR/web"
 npm install
 npm run build
 
+echo "==> Writing runtime environment file (/etc/math-high-api.env)"
+RUNTIME_ENV=/etc/math-high-api.env
+if sudo test -f "$RUNTIME_ENV"; then
+  echo "    $RUNTIME_ENV already exists — leaving it untouched."
+else
+  # A persistent, strong signing secret for auth access tokens. Generated once
+  # so it survives redeploys; without it the app falls back to an insecure
+  # development default.
+  JWT_SECRET_VALUE="$(head -c 48 /dev/urandom | base64 | tr -d '\n/+=' | cut -c1-48)"
+  sudo tee "$RUNTIME_ENV" >/dev/null <<EOF
+# Runtime config for math-high-api (loaded by the systemd unit).
+JWT_SECRET=$JWT_SECRET_VALUE
+PUBLIC_BASE_URL=https://$DOMAIN
+AUTH_COOKIE_SECURE=1
+# OPENROUTER_API_KEY=      # ticket 06
+# SMTP_HOST=               # ticket 02 email delivery (logs instead until set)
+# SMTP_PORT=587
+# SMTP_USERNAME=
+# SMTP_PASSWORD=
+# SMTP_FROM=no-reply@$DOMAIN
+EOF
+  sudo chmod 600 "$RUNTIME_ENV"
+  sudo chown "$DEPLOY_USER:$DEPLOY_USER" "$RUNTIME_ENV"
+  echo "    Generated a fresh JWT_SECRET."
+fi
+
 echo "==> Installing systemd service"
 sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__DEPLOY_USER__|$DEPLOY_USER|g" \
   "$APP_DIR/deploy/math-high-api.service" | sudo tee /etc/systemd/system/math-high-api.service >/dev/null

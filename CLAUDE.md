@@ -90,6 +90,19 @@ outbound email; logs instead of sending when `SMTP_HOST` is unset), and
 OpenRouter; 30s timeout; key from `OPENROUTER_API_KEY`, never the DB). Override
 them with `app.dependency_overrides` in tests; don't reach past them.
 
+### Auth (`app/auth/`)
+`AuthService` (`app/auth/service.py`) is the reusable core — registration, email
+verification, login, rotating refresh sessions, password reset, login rate
+limiting — and reads time only through the injected `Clock`. The routers
+(`app/routers/auth.py`, `.../profile.py`) are thin HTTP wrappers that own status
+codes, the refresh cookie, and outbound email. Access tokens are short-lived
+HS256 JWTs (`app/auth/jwt.py`) carrying the user's `token_generation`; bumping
+that (logout-all, password reset) invalidates every outstanding access **and**
+refresh token. Protect an endpoint with `Depends(require_verified_user)` from
+`app/auth/dependencies.py`. Config/tunables (TTLs, `JWT_SECRET`,
+`AUTH_COOKIE_SECURE`, `PUBLIC_BASE_URL`) live in `app/auth/config.py`, all
+env-overridable; prod values come from `/etc/math-high-api.env`.
+
 ### Adding an endpoint
 1. Model in `app/models.py`, then `alembic revision --autogenerate -m "..."` and
    review the migration. Pydantic schemas in `app/schemas.py` (use

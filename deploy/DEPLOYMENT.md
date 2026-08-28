@@ -134,16 +134,22 @@ What the script does, in order:
 4. Creates `api/.venv`, installs `api/requirements.txt`, runs
    `alembic upgrade head` to build the database schema.
 5. `npm install && npm run build` in `web/` → `web/dist`.
-6. Renders `math-high-api.service` → `/etc/systemd/system/`, `daemon-reload`,
+6. Writes `/etc/math-high-api.env` (mode 600) if absent, with a freshly
+   generated `JWT_SECRET`, `PUBLIC_BASE_URL=https://$DOMAIN`,
+   `AUTH_COOKIE_SECURE=1`, and commented placeholders for `OPENROUTER_API_KEY`
+   and the `SMTP_*` vars. The systemd unit loads it via `EnvironmentFile=-`.
+   Re-running setup never overwrites an existing file — edit it in place to add
+   the email / LLM credentials, then `sudo systemctl restart math-high-api`.
+7. Renders `math-high-api.service` → `/etc/systemd/system/`, `daemon-reload`,
    `enable --now`.
-7. Renders `nginx.conf` → `/etc/nginx/sites-available/math-high`, symlinks it into
+8. Renders `nginx.conf` → `/etc/nginx/sites-available/math-high`, symlinks it into
    `sites-enabled/`, removes the default site, `nginx -t`, `reload`.
-8. Writes `/etc/sudoers.d/math-high-deploy` granting the deploy user passwordless
+9. Writes `/etc/sudoers.d/math-high-deploy` granting the deploy user passwordless
    sudo for **exactly** `systemctl restart math-high-api` and
    `systemctl reload nginx` — nothing else — then `visudo -c` to validate.
-9. If `LETSENCRYPT_EMAIL` is set and `DOMAIN` resolves: installs certbot and runs
-   it non-interactively with `--redirect`.
-10. Prints the app dir, service status command, and the exact GitHub secret values
+10. If `LETSENCRYPT_EMAIL` is set and `DOMAIN` resolves: installs certbot and runs
+    it non-interactively with `--redirect`.
+11. Prints the app dir, service status command, and the exact GitHub secret values
     to set.
 
 ### 4. GitHub repo secrets
@@ -217,6 +223,7 @@ pass `FORCE_NGINX=1`.
 | `APP_DIR/api/data/app.db` | SQLite database (survives deploys; **not** in git) |
 | `APP_DIR/web/dist` | built frontend nginx serves |
 | `/etc/systemd/system/math-high-api.service` | rendered unit (real user/paths) |
+| `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, later `OPENROUTER_API_KEY` / `SMTP_*`); mode 600, **not** in git |
 | `/etc/nginx/sites-available/math-high` | rendered site (real domain, + certbot's 443 block) |
 | `/etc/nginx/sites-enabled/math-high` | symlink to the above |
 | `/etc/sudoers.d/math-high-deploy` | the two-command NOPASSWD rule for CI |

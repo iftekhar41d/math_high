@@ -22,13 +22,25 @@ from app.mentisq.llm_client import get_llm_client
 from tests.fakes import FakeClock, FakeEmailSender, FakeMentisQLLMClient
 
 
+@pytest.fixture(autouse=True)
+def _auth_env(monkeypatch):
+    """Deterministic auth config for the suite.
+
+    `AUTH_COOKIE_SECURE=0` so the `TestClient` (plain HTTP) keeps the refresh
+    cookie; a fixed `JWT_SECRET` so tokens are stable; a known base URL so email
+    link parsing in tests is predictable.
+    """
+    monkeypatch.setenv("AUTH_COOKIE_SECURE", "0")
+    monkeypatch.setenv("JWT_SECRET", "test-secret")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://testserver")
+
+
 @pytest.fixture
 def db_engine():
     """A fresh in-memory SQLite DB per test, shared across connections.
 
-    Schema is applied with `create_all` for speed; it is equivalent to
-    `alembic upgrade head` here (no models yet). `test_migrations.py` covers the
-    Alembic path itself.
+    Schema is applied with `create_all` for speed; `test_migrations.py` covers
+    the Alembic path itself and keeps the two in sync.
     """
     engine = create_engine(
         "sqlite://",

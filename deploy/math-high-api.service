@@ -6,6 +6,11 @@ After=network.target
 Type=simple
 User=__DEPLOY_USER__
 WorkingDirectory=__APP_DIR__/api
+# Runtime secrets/config live here, not in the repo. setup-vps.sh creates it
+# with a generated JWT_SECRET; add OPENROUTER_API_KEY / SMTP_* as those features
+# land. The leading "-" means "don't fail if the file is missing" (e.g. a dev
+# box running the unit by hand).
+EnvironmentFile=-/etc/math-high-api.env
 ExecStart=__APP_DIR__/api/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
 Restart=always
 RestartSec=5
