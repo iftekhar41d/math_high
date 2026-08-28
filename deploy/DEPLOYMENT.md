@@ -9,6 +9,7 @@ serves directly, and every push to `main` redeploys via GitHub Actions.
 - [Configuration](#configuration)
 - [Standing up a new VPS](#standing-up-a-new-vps)
 - [HTTPS / TLS](#https--tls)
+- [Configuring email](#configuring-email)
 - [CI/CD](#cicd)
 - [Re-running setup on an existing host](#re-running-setup-on-an-existing-host)
 - [Where things live on the server](#where-things-live-on-the-server)
@@ -185,6 +186,109 @@ Push to `main`. Watch it under the repo's **Actions** tab, or
 
 - The email is deliberately **not** stored in the repo — it would be published and
   registered with Let's Encrypt. Keep it in the command line / an env var.
+
+## Configuring email
+
+The API sends two kinds of message — email verification and password reset —
+through the `EmailSender` boundary (`api/app/email_sender.py`). **With `SMTP_HOST`
+unset it does not send: it writes the message to the journal** (`LoggingEmailSender`)
+so local dev works with no provider. Production needs a real transactional
+provider wired in.
+
+The app only speaks **SMTP**, so any provider works (Resend, Amazon SES,
+Postmark, SendGrid, Mailgun, …). Steps below use **Resend**, which is what the
+current host runs.
+
+### 1. Provider + sending domain
+
+1. Create a provider account.
+2. Add a **subdomain** as the sending domain — `send.<your-domain>` (keeps the
+   root domain's reputation separate). The current host uses `send.mentisq.com`,
+   Resend region `apne1`.
+3. The provider shows a set of DNS records to prove you own the domain. For
+   Resend on a subdomain that is two `CNAME`s (SPF / return-path) and one `TXT`
+   (DKIM), e.g.:
+
+   | Type | Host (at the registrar, relative to the zone apex) | Value |
+   |---|---|---|
+   | CNAME | `rsend.send` | `rsend-<region>.forge.rmta.net` |
+   | CNAME | `send.send` | `send.forge.rmta.net` |
+   | TXT | `resend._domainkey.send` | `p=MIGf…` (long) |
+
+   **Copy the values from the provider dashboard — don't retype them.** At
+   Namecheap: Domain List → Manage → Advanced DNS → Host Records → Add New
+   Record; the Host field is the name **without** the `.<your-domain>` suffix and
+   without a trailing dot.
+4. Wait for propagation (~15–60 min at Namecheap), then click **Verify** in the
+   provider until the domain is fully green — DKIM included, not just SPF.
+
+### 2. DMARC (optional, recommended)
+
+Add one `TXT` record — Host `_dmarc`, value
+`v=DMARC1; p=none; rua=mailto:dmarc@<your-domain>`. Start at `p=none` (monitor);
+tighten to `p=quarantine` then `p=reject` after a week or two of clean reports.
+Not required for mail to flow.
+
+### 3. API key
+
+Create a **sending** API key in the provider, scoped to the sending domain.
+
+### 4. Put the SMTP settings on the VPS
+
+The values live in `/etc/math-high-api.env` (mode 600, `deploy`-owned, **not** in
+git), loaded by the systemd unit via `EnvironmentFile=-/etc/math-high-api.env`.
+`setup-vps.sh` creates that file (with a generated `JWT_SECRET`) and the unit
+already carries the `EnvironmentFile=` line. On a host bootstrapped **before**
+that line existed, re-render the unit once:
+
+```bash
+sudo sed -e "s|__APP_DIR__|$HOME/math-high|g" -e "s|__DEPLOY_USER__|$(whoami)|g" \
+  "$HOME/math-high/deploy/math-high-api.service" \
+  | sudo tee /etc/systemd/system/math-high-api.service >/dev/null
+sudo systemctl daemon-reload
+```
+
+Then add the SMTP block to `/etc/math-high-api.env` (see `.env.example` for the
+full list) and restart:
+
+```bash
+sudo tee -a /etc/math-high-api.env >/dev/null <<'EOF'
+SMTP_HOST=smtp.resend.com
+SMTP_PORT=587
+SMTP_USERNAME=resend
+SMTP_PASSWORD=<the provider API key>
+SMTP_FROM=no-reply@send.<your-domain>
+SMTP_TLS=1
+EOF
+sudo systemctl restart math-high-api
+```
+
+Port 587 = STARTTLS (`SMTP_TLS=1`). For Resend, `SMTP_USERNAME` is the literal
+string `resend` and the password is the API key. `SMTP_FROM` must be an address
+on the verified domain.
+
+### 5. Verify delivery
+
+Trigger a real send against a known account and watch the log:
+
+```bash
+curl -sS -X POST https://<your-domain>/api/auth/forgot-password \
+  -H 'Content-Type: application/json' -d '{"email":"you@example.com"}'
+journalctl -u math-high-api --since -1min --no-pager
+```
+
+- The message should arrive, and appear in the provider's delivery log.
+- A journal line `EMAIL NOT SENT (no SMTP configured)` means `SMTP_HOST` isn't
+  reaching the process — check `/etc/math-high-api.env` and that
+  `systemctl show math-high-api -p EnvironmentFiles` lists it. Confirm the
+  running process actually has the vars:
+  `sudo tr '\0' '\n' < /proc/$(systemctl show -p MainPID --value math-high-api)/environ | grep SMTP_`.
+- An `smtplib` traceback means bad credentials or a blocked port — check the key
+  and that outbound 587 is open.
+
+`/etc/math-high-api.env` is not backed up and not recreated by the deploy
+pipeline — record the SMTP values (and `JWT_SECRET`) somewhere safe; a VPS
+rebuild needs them re-entered.
 
 ## CI/CD
 
