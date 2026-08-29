@@ -20,6 +20,9 @@ const review = ref(null) // SessionReviewOut once submitted
 const remaining = ref(0)
 const submitting = ref(false)
 let ticker = null
+// Wall-clock instant the countdown hits zero, fixed from the server's
+// `remaining_seconds` at hydrate — so backgrounding the tab can't drift it.
+let deadlineMs = 0
 
 // Per-question interaction state, keyed by question id.
 const qs = reactive({})
@@ -77,6 +80,7 @@ function hydrate(data) {
   session.value = data
   review.value = data.review || null
   remaining.value = data.remaining_seconds || 0
+  deadlineMs = Date.now() + remaining.value * 1000
   for (const k of Object.keys(qs)) delete qs[k]
   for (const q of data.questions || []) qs[q.id] = freshQuestionState(q)
   for (const a of data.answers || []) {
@@ -96,7 +100,7 @@ function hydrate(data) {
 function startTicker() {
   stopTicker()
   ticker = setInterval(() => {
-    remaining.value = Math.max(0, remaining.value - 1)
+    remaining.value = Math.max(0, Math.round((deadlineMs - Date.now()) / 1000))
     if (remaining.value === 0) {
       stopTicker()
       submitQuiz()
@@ -139,23 +143,22 @@ async function load() {
 
 load()
 
-function buildPartAnswer(part, ps) {
-  if (part.type === 'mcq_single') return ps.single
-  if (part.type === 'mcq_multi') return [...ps.multi]
-  if (part.type === 'symbolic') return ps.symbolic
-  return ps.numeric === '' ? null : Number(ps.numeric)
+// One answer shape per question type, off the per-question (or per-part) input
+// state. `multi_part` maps each part's id to the same, keyed by part type.
+function readAnswer(type, st) {
+  if (type === 'mcq_single') return st.single
+  if (type === 'mcq_multi') return [...st.multi]
+  if (type === 'symbolic') return st.symbolic
+  return st.numeric === '' ? null : Number(st.numeric)
 }
 
 function buildAnswer(q, s) {
-  if (q.type === 'mcq_single') return s.single
-  if (q.type === 'mcq_multi') return [...s.multi]
-  if (q.type === 'symbolic') return s.symbolic
   if (q.type === 'multi_part') {
     const out = {}
-    for (const p of q.parts || []) out[p.id] = buildPartAnswer(p, s.parts[p.id])
+    for (const p of q.parts || []) out[p.id] = readAnswer(p.type, s.parts[p.id])
     return out
   }
-  return s.numeric === '' ? null : Number(s.numeric)
+  return readAnswer(q.type, s)
 }
 
 async function recordAnswer(q) {

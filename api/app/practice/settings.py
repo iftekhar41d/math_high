@@ -23,7 +23,7 @@ SETTING_SOLUTION_REVEAL_AFTER_ATTEMPTS = "practice.solution_reveal_after_attempt
 DEFAULT_SOLUTION_REVEAL_AFTER_ATTEMPTS = 1
 
 SETTING_DEFAULT_QUESTION_SECONDS = "practice.default_question_seconds"
-DEFAULT_DEFAULT_QUESTION_SECONDS = 90
+DEFAULT_QUESTION_SECONDS = 90
 
 
 def solution_reveal_after_attempts(db: Session) -> int:
@@ -36,5 +36,5 @@ def solution_reveal_after_attempts(db: Session) -> int:
 def default_question_seconds(db: Session) -> int:
     raw = read_setting(db, SETTING_DEFAULT_QUESTION_SECONDS)
     if raw is None:
-        return DEFAULT_DEFAULT_QUESTION_SECONDS
+        return DEFAULT_QUESTION_SECONDS
     return int(raw)

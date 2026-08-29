@@ -267,9 +267,8 @@ class TimedSessionOut(BaseModel):
     unit: UnitRef
     time_limit_seconds: int
     started_at: datetime
-    # The injected `Clock`'s current instant, so the SPA can correct for drift.
-    server_now: datetime
-    # Whole seconds left, never negative; 0 once the limit has elapsed.
+    # Whole seconds left by the server's `Clock`, never negative; 0 once the
+    # limit has elapsed. The SPA counts down locally from this.
     remaining_seconds: int
     submitted_at: datetime | None
     questions: list[PracticeQuestionOut]

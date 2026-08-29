@@ -30,12 +30,7 @@ from app.models import (
     User,
     YearLevel,
 )
-from app.practice.timed import (
-    is_after_limit,
-    remaining_seconds,
-    score,
-    total_time_limit,
-)
+from app.practice.timed import Countdown, proportion_correct, total_time_limit
 from tests.test_auth import login, register_and_verify
 from tests.test_content import _student
 
@@ -53,52 +48,25 @@ def test_total_time_limit_of_an_empty_set_is_zero():
     assert total_time_limit([], 90) == 0
 
 
-def test_remaining_seconds_counts_down_and_never_goes_negative():
-    assert (
-        remaining_seconds(
-            time_limit_seconds=180, started_at=START, now=START
-        )
-        == 180
-    )
-    assert (
-        remaining_seconds(
-            time_limit_seconds=180,
-            started_at=START,
-            now=START + timedelta(seconds=100),
-        )
-        == 80
-    )
-    assert (
-        remaining_seconds(
-            time_limit_seconds=180,
-            started_at=START,
-            now=START + timedelta(seconds=999),
-        )
-        == 0
-    )
+def test_countdown_remaining_counts_down_and_never_goes_negative():
+    cd = Countdown(180, START)
+    assert cd.remaining(START) == 180
+    assert cd.remaining(START + timedelta(seconds=100)) == 80
+    assert cd.remaining(START + timedelta(seconds=999)) == 0
 
 
-def test_is_after_limit_only_once_the_limit_has_elapsed():
-    assert not is_after_limit(
-        time_limit_seconds=180, started_at=START, now=START
-    )
-    assert not is_after_limit(
-        time_limit_seconds=180,
-        started_at=START,
-        now=START + timedelta(seconds=180),
-    )
-    assert is_after_limit(
-        time_limit_seconds=180,
-        started_at=START,
-        now=START + timedelta(seconds=181),
-    )
+def test_countdown_is_after_limit_only_once_the_limit_has_elapsed():
+    cd = Countdown(180, START)
+    assert not cd.is_after_limit(START)
+    assert not cd.is_after_limit(START + timedelta(seconds=180))
+    assert cd.is_after_limit(START + timedelta(seconds=181))
 
 
-def test_score_treats_the_vector_as_proportion_correct():
-    assert score([True, True, False, False]) == 0.5
-    assert score([True, True, True]) == 1.0
-    assert score([False, False]) == 0.0
-    assert score([]) == 0.0
+def test_proportion_correct_over_the_vector():
+    assert proportion_correct([True, True, False, False]) == 0.5
+    assert proportion_correct([True, True, True]) == 1.0
+    assert proportion_correct([False, False]) == 0.0
+    assert proportion_correct([]) == 0.0
 
 
 # -- fixture ----------------------------------------------------------------
@@ -418,11 +386,60 @@ def test_get_session_countdown_is_derived_from_the_clock(
     ).json()
     assert body["remaining_seconds"] == 80
 
-    fake_clock.advance(timedelta(seconds=500))
+    fake_clock.advance(timedelta(seconds=50))
     body = client.get(
         f"/practice/sessions/{sid}", headers=headers
     ).json()
+    assert body["remaining_seconds"] == 30
+
+
+def test_observing_an_expired_session_closes_it_server_side(
+    client, fake_email, fake_clock, db_session, timed_tree
+):
+    """A student who abandons the tab: nothing calls submit, but the next
+    observation of the run finalises it — score and submitted_at exist."""
+    fake_clock.set(START)
+    headers = _student(client, fake_email)
+    sid = _start(client, headers, timed_tree["number_unit_id"]).json()[
+        "session_id"
+    ]
+    _submit(client, headers, timed_tree["q1_id"], "b")  # 1 of 3 correct
+
+    fake_clock.advance(timedelta(seconds=181))  # countdown exhausted
+    body = client.get(
+        f"/practice/sessions/{sid}", headers=headers
+    ).json()
+
     assert body["remaining_seconds"] == 0
+    assert body["submitted_at"] is not None
+    assert body["review"] is not None
+    assert body["review"]["score"] == pytest.approx(1 / 3, rel=1e-3)
+
+    session = db_session.query(PracticeSession).one()
+    assert session.submitted_at == START + timedelta(seconds=181)
+    assert session.score == pytest.approx(1 / 3, rel=1e-3)
+
+
+def test_withholding_survives_a_newer_topic_session_on_a_shared_question(
+    client, fake_email, timed_tree
+):
+    """A topic-practice run started after the quiz (another tab) has a higher
+    id, but the quiz still owns every submit of a question it froze."""
+    headers = _student(client, fake_email)
+    _start(client, headers, timed_tree["number_unit_id"])
+    # A topic session over "Integers" — freezes q1 and q2, newer id.
+    assert (
+        client.post(
+            "/practice/sessions",
+            json={"topic_slug": "integers"},
+            headers=headers,
+        ).status_code
+        == 200
+    )
+
+    res = _submit(client, headers, timed_tree["q1_id"], "b").json()
+    assert res["is_correct"] is None  # still withheld
+    assert res["worked_solution"] is None
 
 
 def test_late_answer_is_accepted_and_flagged(

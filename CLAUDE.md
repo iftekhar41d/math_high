@@ -155,23 +155,33 @@ default 1 — from the first submission on); the explicit `show-solution` reques
 is never gated by it.
 
 **Timed quiz mode** (`mode = timed`, `scope_type = unit`) builds on the same
-tables plus a third pure module, `timed.py` (countdown / late-flag / score
-arithmetic — no DB or clock). `POST /practice/timed-sessions` (`{unit_id}`)
-freezes every question the caller may practise in the Unit (topic order, then
-seed order), sets `time_limit_seconds` to the sum of the questions'
+tables plus a third pure module, `timed.py` — `Countdown(time_limit_seconds,
+started_at)` (`.remaining(now)` / `.is_after_limit(now)`) and
+`proportion_correct(...)`, no DB or clock. `POST /practice/timed-sessions`
+(`{unit_id}`) freezes every question the caller may practise in the Unit (topic
+order, then seed order), sets `time_limit_seconds` to the sum of the questions'
 `estimated_time_seconds` (a null filled with the `practice.default_question_seconds`
 `Setting`, default 90), and stamps `started_at` from the `Clock`. Expiry is
-**server-authoritative**: `remaining_seconds` and the late flag are derived from
-`started_at` + the `Clock`, never the client. While the session is open, a
+**server-authoritative**: `remaining_seconds` is derived from `started_at` + the
+`Clock`, and `GET /practice/sessions/{id}` on a run whose countdown has run out
+**closes it** (scores + stamps `submitted_at`) before responding — so an
+abandoned tab still yields a review (mutating GET, like
+`GET /content/topics/{slug}` writing a `TopicView`). While the session is open a
 `submit` is graded and persisted as normal but the response withholds
 `is_correct` / `worked_solution` (returned `null`); an answer past the limit is
-stored with `QuestionAttempt.after_time_limit = True`, never rejected. `POST
-/practice/sessions/{id}/submit` (timed only, idempotent) scores the frozen set
-(unanswered → incorrect), sets `score` / `submitted_at`, and returns the review
-— per-question correctness + worked solutions. `GET /practice/sessions/{id}`
-(timed only, caller's own) returns the open quiz (public questions +
-`remaining_seconds` + answers so far) or, once submitted, the review. Each start
-is a new `PracticeSession`; retakes are unlimited.
+stored with `QuestionAttempt.after_time_limit = True`, never rejected. The
+withholding (and the 409 from `show-solution`) keys off
+`_open_timed_session_for(user, question)` — the caller's newest open timed run
+that froze the question, independent of `_active_session_id`, so a topic run
+started afterwards can't defeat it; it lapses `_TIMED_ABANDON_GRACE` (15 min)
+past the limit so a stale never-closed run doesn't block ordinary topic
+practice. A running timed quiz also owns the `practice_session_id` of every
+submit of a question it froze. `POST /practice/sessions/{id}/submit` (timed
+only, idempotent) scores the frozen set (unanswered → incorrect), sets `score` /
+`submitted_at`, and returns the review — per-question correctness + worked
+solutions. `GET` returns the open quiz (public questions + `remaining_seconds` +
+answers so far, for reload-resume) or, once submitted, the review. Each start is
+a new `PracticeSession`; retakes are unlimited.
 
 ### CAS equivalence (`app/cas/`)
 A pure module in the mould of `grading.py` — no DB, no clock, no network, no

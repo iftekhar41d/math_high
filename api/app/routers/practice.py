@@ -11,7 +11,7 @@ can only practise `published` Topics; a `ContentAdmin` may also practise drafts
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
@@ -42,12 +42,7 @@ from app.practice.settings import (
     default_question_seconds,
     solution_reveal_after_attempts,
 )
-from app.practice.timed import (
-    is_after_limit,
-    remaining_seconds,
-    score,
-    total_time_limit,
-)
+from app.practice.timed import Countdown, proportion_correct, total_time_limit
 from app.schemas import (
     PracticeSessionOut,
     SessionReviewOut,
@@ -118,23 +113,45 @@ def _active_session_id(
     )
 
 
-def _open_timed_session(
-    db: Session, active_session_id: int | None
+# How long past its own time limit a still-open `timed` run keeps withholding
+# correctness / worked solutions from a bare submit or show-solution. Past this
+# the run is treated as abandoned so ordinary topic practice on the same
+# questions is no longer affected (ticket 04's "recency window" ask). A run
+# observed via `GET /practice/sessions/{id}` is closed for real before then.
+_TIMED_ABANDON_GRACE = timedelta(minutes=15)
+
+
+def _open_timed_session_for(
+    db: Session, user: User, question_id: int, now: datetime
 ) -> PracticeSession | None:
-    """The `PracticeSession` behind `active_session_id` when it's a `timed` run
-    that hasn't been submitted yet — the state in which correctness and worked
-    solutions are withheld. `None` for a topic run, a submitted run, or no run.
+    """The caller's newest not-yet-submitted `timed` run that froze this
+    question — the state in which its correctness and worked solution are
+    withheld. Independent of `_active_session_id`, so a topic run started in
+    another tab can't out-rank the quiz. `None` once the run is submitted or
+    more than `_TIMED_ABANDON_GRACE` past its limit.
     """
-    if active_session_id is None:
+    session = db.scalar(
+        select(PracticeSession)
+        .join(
+            PracticeSessionQuestion,
+            PracticeSessionQuestion.session_id == PracticeSession.id,
+        )
+        .where(
+            PracticeSession.user_id == user.id,
+            PracticeSession.mode == PRACTICE_MODE_TIMED,
+            PracticeSession.submitted_at.is_(None),
+            PracticeSessionQuestion.question_id == question_id,
+        )
+        .order_by(PracticeSession.id.desc())
+    )
+    if session is None:
         return None
-    session = db.get(PracticeSession, active_session_id)
-    if (
-        session is not None
-        and session.mode == PRACTICE_MODE_TIMED
-        and session.submitted_at is None
-    ):
-        return session
-    return None
+    abandoned_at = (
+        session.started_at
+        + timedelta(seconds=session.time_limit_seconds or 0)
+        + _TIMED_ABANDON_GRACE
+    )
+    return None if now > abandoned_at else session
 
 
 @router.post("/sessions", response_model=PracticeSessionOut)
@@ -213,19 +230,23 @@ def submit_answer(
     # usual, but the response withholds correctness and the worked solution
     # until the whole set is submitted for review. An answer that arrives after
     # the quiz's limit is flagged, never rejected.
-    active_id = _active_session_id(db, user, question.id)
-    timed_open = _open_timed_session(db, active_id)
-    after_limit = timed_open is not None and is_after_limit(
-        time_limit_seconds=timed_open.time_limit_seconds or 0,
-        started_at=timed_open.started_at,
-        now=clock.now(),
+    timed_open = _open_timed_session_for(db, user, question.id, clock.now())
+    # A running timed quiz owns every submit of a question it froze, ahead of
+    # any topic run; otherwise fall back to the usual most-recent-open rule.
+    session_id = (
+        timed_open.id
+        if timed_open is not None
+        else _active_session_id(db, user, question.id)
     )
+    after_limit = timed_open is not None and Countdown(
+        timed_open.time_limit_seconds or 0, timed_open.started_at
+    ).is_after_limit(clock.now())
 
     db.add(
         QuestionAttempt(
             user_id=user.id,
             question_id=question.id,
-            practice_session_id=active_id,
+            practice_session_id=session_id,
             submitted_answer=body.answer,
             is_correct=correct,
             part_results=part_results,
@@ -273,10 +294,7 @@ def show_solution(
 
     # ...except inside an open timed quiz, where no solution is available until
     # the whole set is submitted for review.
-    if (
-        _open_timed_session(db, _active_session_id(db, user, question.id))
-        is not None
-    ):
+    if _open_timed_session_for(db, user, question.id, clock.now()) is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Worked solutions are hidden until the timed quiz is submitted.",
@@ -416,6 +434,27 @@ def _build_review(
     )
 
 
+def _finalize_timed_session(
+    db: Session, session: PracticeSession, now: datetime
+) -> None:
+    """Grade the whole frozen set (unanswered → incorrect), stamp `score` /
+    `submitted_at`, commit. No-op if already submitted — so a manual submit
+    racing the SPA's auto-submit-at-zero, or an expiry close racing either,
+    all converge on the first result."""
+    if session.submitted_at is not None:
+        return
+    frozen = _frozen_questions(db, session)
+    latest = _latest_attempts(db, session)
+    session.score = proportion_correct(
+        [
+            bool(latest[q.id].is_correct) if q.id in latest else False
+            for q in frozen
+        ]
+    )
+    session.submitted_at = now
+    db.commit()
+
+
 def _timed_session_out(
     db: Session,
     session: PracticeSession,
@@ -450,12 +489,7 @@ def _timed_session_out(
         unit=UnitRef.model_validate(unit),
         time_limit_seconds=limit,
         started_at=session.started_at,
-        server_now=now,
-        remaining_seconds=remaining_seconds(
-            time_limit_seconds=limit,
-            started_at=session.started_at,
-            now=now,
-        ),
+        remaining_seconds=Countdown(limit, session.started_at).remaining(now),
         submitted_at=session.submitted_at,
         questions=questions,
         answers=answers,
@@ -512,7 +546,20 @@ def get_timed_session(
     user: User = Depends(require_verified_user),
 ) -> TimedSessionOut:
     session = _timed_session_or_404(db, user, session_id)
-    return _timed_session_out(db, session, clock.now())
+    # Expiry is server-authoritative: observing a run whose countdown has run
+    # out closes it here and now, so a review and score exist even if the SPA
+    # never fired its auto-submit (the tab was closed). Late answers are still
+    # accepted up to the close (see `submit_answer`). Precedent for a mutating
+    # GET: `GET /content/topics/{slug}` writes a `TopicView`.
+    now = clock.now()
+    limit = session.time_limit_seconds or 0
+    if (
+        session.submitted_at is None
+        and limit > 0
+        and Countdown(limit, session.started_at).remaining(now) == 0
+    ):
+        _finalize_timed_session(db, session, now)
+    return _timed_session_out(db, session, now)
 
 
 @router.post(
@@ -525,19 +572,5 @@ def submit_timed_session(
     user: User = Depends(require_verified_user),
 ) -> SessionReviewOut:
     session = _timed_session_or_404(db, user, session_id)
-
-    # Idempotent: a manual submit racing the SPA's auto-submit-at-zero just
-    # gets the already-computed review back, unchanged.
-    if session.submitted_at is None:
-        frozen = _frozen_questions(db, session)
-        latest = _latest_attempts(db, session)
-        # An unanswered question scores incorrect.
-        correct_vector = [
-            bool(latest[q.id].is_correct) if q.id in latest else False
-            for q in frozen
-        ]
-        session.score = score(correct_vector)
-        session.submitted_at = clock.now()
-        db.commit()
-
+    _finalize_timed_session(db, session, clock.now())
     return _build_review(db, session)
