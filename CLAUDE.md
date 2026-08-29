@@ -131,11 +131,19 @@ keep it server-side: `grading.py` (`is_correct(type, answer_schema, submitted)`
 `tolerance` with a float-edge guard) and `payload.py` (`public_question()` — the
 **single chokepoint** that strips everything but body/difficulty/skill-tags and
 MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
-/practice/sessions` returns a Topic's ordered questions via `public_question`;
+/practice/sessions` persists a `PracticeSession` (`mode = topic`,
+`scope_type = topic`), freezes the Topic's ordered questions into
+`practice_session_questions`, and returns them via `public_question` (the
+response is unchanged — the session is server-side bookkeeping);
 `POST /practice/questions/{id}/submit` grades and writes a `QuestionAttempt`
-(`attempt_no` counts prior graded rows + 1); `POST
+(`attempt_no` counts prior graded rows + 1), linked via
+`practice_session_id` to the caller's most recent still-open session that froze
+the question (null = standalone attempt); `POST
 /practice/questions/{id}/show-solution` sets `solution_viewed` on the latest
-attempt, or writes a marker row (`attempt_no = 0`) if there's no submission yet.
+attempt, or writes a marker row (`attempt_no = 0`, linked the same way) if
+there's no submission yet. `PracticeSession` also carries
+`time_limit_seconds` / `submitted_at` / `score`, unused by `topic` mode —
+Phase 2b's `mixed` and `timed` modes build on the same table.
 Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 `submit` only returns `worked_solution` once `attempt_no` reaches the
 `practice.solution_reveal_after_attempts` `Setting` (`app/practice/settings.py`,

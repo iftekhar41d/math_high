@@ -20,6 +20,10 @@ from app.clock import Clock, get_clock
 from app.content_access import topic_is_published
 from app.database import get_db
 from app.models import (
+    PRACTICE_MODE_TOPIC,
+    PRACTICE_SCOPE_TOPIC,
+    PracticeSession,
+    PracticeSessionQuestion,
     Question,
     QuestionAttempt,
     Topic,
@@ -68,10 +72,36 @@ def _practisable_question_or_404(
     return question
 
 
+def _active_session_id(
+    db: Session, user: User, question_id: int
+) -> int | None:
+    """The `PracticeSession` a bare submit / show-solution on this Question
+    belongs to: the caller's most recent still-open run that froze it (`topic`
+    runs never set `submitted_at`, so a run stays linkable until a later ticket
+    gives it an explicit close). If several open runs froze the question the
+    newest (`id` desc) wins. `None` when they never started one — the attempt
+    is then standalone.
+    """
+    return db.scalar(
+        select(PracticeSession.id)
+        .join(
+            PracticeSessionQuestion,
+            PracticeSessionQuestion.session_id == PracticeSession.id,
+        )
+        .where(
+            PracticeSession.user_id == user.id,
+            PracticeSession.submitted_at.is_(None),
+            PracticeSessionQuestion.question_id == question_id,
+        )
+        .order_by(PracticeSession.id.desc())
+    )
+
+
 @router.post("/sessions", response_model=PracticeSessionOut)
 def start_session(
     body: StartPracticeRequest,
     db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
     user: User = Depends(require_verified_user),
 ) -> PracticeSessionOut:
     topic = _visible_topic_or_404(db, body.topic_slug, user)
@@ -84,6 +114,24 @@ def start_session(
             .order_by(Question.id)
         )
     )
+    # Persist the run and freeze its ordered question set. The response is
+    # unchanged from Phase 1 — the session is server-side bookkeeping the
+    # submit / show-solution endpoints link their attempts to.
+    db.add(
+        PracticeSession(
+            user_id=user.id,
+            mode=PRACTICE_MODE_TOPIC,
+            scope_type=PRACTICE_SCOPE_TOPIC,
+            scope_id=topic.id,
+            question_count=len(questions),
+            started_at=clock.now(),
+            questions=[
+                PracticeSessionQuestion(question_id=q.id, position=i)
+                for i, q in enumerate(questions)
+            ],
+        )
+    )
+    db.commit()
     return PracticeSessionOut(
         topic=TopicRef.model_validate(topic),
         questions=[public_question(q) for q in questions],
@@ -118,6 +166,7 @@ def submit_answer(
         QuestionAttempt(
             user_id=user.id,
             question_id=question.id,
+            practice_session_id=_active_session_id(db, user, question.id),
             submitted_answer=body.answer,
             is_correct=correct,
             time_taken=body.time_taken,
@@ -167,6 +216,7 @@ def show_solution(
             QuestionAttempt(
                 user_id=user.id,
                 question_id=question.id,
+                practice_session_id=_active_session_id(db, user, question.id),
                 attempt_no=0,
                 solution_viewed=True,
                 created_at=clock.now(),

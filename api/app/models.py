@@ -11,7 +11,9 @@ association table, `LectureContent`, and the `TopicView` analytics event. The
 Ticket 04 adds the practice tables: `Question` (with its `answer_schema` JSON),
 `SkillTag` + the `question_skill_tags` association table, and `QuestionAttempt`.
 Ticket 06 adds the MentisQ tables (`MentisQSession`, `MentisQMessage`) and the
-`Setting` key/value store for `SuperAdmin` configuration.
+`Setting` key/value store for `SuperAdmin` configuration. Phase 2 ticket 04 adds
+the persisted practice run: `PracticeSession` + `PracticeSessionQuestion` and the
+`QuestionAttempt.practice_session_id` FK.
 """
 
 from __future__ import annotations
@@ -384,6 +386,79 @@ class Question(Base):
     )
 
 
+# A persisted practice run. `PracticeSession` holds a frozen, ordered set of
+# Questions (`PracticeSessionQuestion`), the mode it was started in, its scope,
+# timing, and — for the modes that grade a whole set at once — a final `score`.
+# Every `QuestionAttempt` made inside a run carries its `practice_session_id`.
+# Phase 2b adds the `mixed` and `timed` modes; ticket 04 wires only `topic`,
+# which reproduces the Phase 1 Topic-practice flow with no visible change.
+
+PRACTICE_MODE_TOPIC = "topic"
+PRACTICE_MODE_MIXED = "mixed"
+PRACTICE_MODE_TIMED = "timed"
+
+PRACTICE_SCOPE_TOPIC = "topic"
+PRACTICE_SCOPE_UNIT = "unit"
+PRACTICE_SCOPE_YEAR_LEVEL = "year_level"
+
+
+class PracticeSession(Base):
+    __tablename__ = "practice_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # One of PRACTICE_MODE_*.
+    mode: Mapped[str] = mapped_column(String)
+    # One of PRACTICE_SCOPE_* — what `scope_id` points at.
+    scope_type: Mapped[str] = mapped_column(String)
+    # A `topics.id`, `units.id`, or `year_levels.id`, per `scope_type`. Not a
+    # ForeignKey: the column is polymorphic across those tables.
+    scope_id: Mapped[int] = mapped_column(Integer)
+    # How many Questions were frozen into the run (== len(questions)).
+    question_count: Mapped[int] = mapped_column(Integer)
+    # Set only for `timed`; null for the question-at-a-time modes.
+    time_limit_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    started_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now()
+    )
+    # Set when the student submits the whole set (`timed`); null otherwise —
+    # `topic` practice is graded one question at a time and never "submitted".
+    submitted_at: Mapped[datetime | None] = mapped_column(
+        UtcDateTime, nullable=True
+    )
+    # Final proportion correct over the frozen set, for the modes that score a
+    # whole run; null otherwise.
+    score: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+    questions: Mapped[list[PracticeSessionQuestion]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="PracticeSessionQuestion.position",
+    )
+
+
+class PracticeSessionQuestion(Base):
+    """One Question frozen into a `PracticeSession` at creation, at a fixed
+    0-based `position` in the run's order. The set never changes after the
+    session is created.
+    """
+
+    __tablename__ = "practice_session_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("practice_sessions.id"), index=True
+    )
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id"), index=True
+    )
+    position: Mapped[int] = mapped_column(Integer)
+
+    session: Mapped[PracticeSession] = relationship(back_populates="questions")
+
+
 class QuestionAttempt(Base):
     """One row per graded submission. A bare "show solution" with no prior
     submission also writes a marker row (`attempt_no = 0`, `submitted_answer`
@@ -397,6 +472,11 @@ class QuestionAttempt(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     question_id: Mapped[int] = mapped_column(
         ForeignKey("questions.id"), index=True
+    )
+    # The practice run this attempt was made in. Nullable: an attempt made
+    # outside any session (none today, but the path stays open) is standalone.
+    practice_session_id: Mapped[int | None] = mapped_column(
+        ForeignKey("practice_sessions.id"), nullable=True, index=True
     )
     # The student's answer as submitted (option id, list of ids, or number);
     # null on a solution-only marker row.

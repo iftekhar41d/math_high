@@ -13,7 +13,11 @@ import pytest
 from app.models import (
     CONTENT_DRAFT,
     CONTENT_PUBLISHED,
+    PRACTICE_MODE_TOPIC,
+    PRACTICE_SCOPE_TOPIC,
     LectureContent,
+    PracticeSession,
+    PracticeSessionQuestion,
     Question,
     QuestionAttempt,
     SkillTag,
@@ -316,6 +320,109 @@ def test_each_submission_persists_attempt_no_time_taken_and_correctness(
     assert [r.submitted_answer for r in rows] == ["a", "b"]
     assert all(r.solution_viewed is False for r in rows)
     assert all(r.created_at is not None for r in rows)
+
+
+# -- persisted practice session --------------------------------------------
+
+
+def _student_id(db_session):
+    return db_session.query(User).filter_by(email="ada@example.com").one().id
+
+
+def test_starting_a_topic_session_persists_it_with_a_frozen_question_set(
+    client, fake_email, db_session, practice_tree
+):
+    headers = _student(client, fake_email)
+    assert _start(client, headers).status_code == 200
+
+    session = (
+        db_session.query(PracticeSession)
+        .filter_by(user_id=_student_id(db_session))
+        .one()
+    )
+    assert session.mode == PRACTICE_MODE_TOPIC
+    assert session.scope_type == PRACTICE_SCOPE_TOPIC
+    assert session.question_count == 3
+    assert session.time_limit_seconds is None
+    assert session.submitted_at is None
+    assert session.score is None
+    assert session.started_at is not None
+
+    frozen = (
+        db_session.query(PracticeSessionQuestion)
+        .filter_by(session_id=session.id)
+        .order_by(PracticeSessionQuestion.position)
+        .all()
+    )
+    assert [f.position for f in frozen] == [0, 1, 2]
+    assert [f.question_id for f in frozen] == [
+        practice_tree["single_id"],
+        practice_tree["multi_id"],
+        practice_tree["numeric_id"],
+    ]
+
+
+def test_submitting_within_a_session_links_the_attempt_to_it(
+    client, fake_email, db_session, practice_tree
+):
+    headers = _student(client, fake_email)
+    _start(client, headers)
+    qid = practice_tree["single_id"]
+
+    client.post(
+        f"/practice/questions/{qid}/submit",
+        json={"answer": "b"},
+        headers=headers,
+    )
+
+    session = (
+        db_session.query(PracticeSession)
+        .filter_by(user_id=_student_id(db_session))
+        .one()
+    )
+    attempt = (
+        db_session.query(QuestionAttempt).filter_by(question_id=qid).one()
+    )
+    assert attempt.practice_session_id == session.id
+
+
+def test_show_solution_marker_row_is_linked_to_the_session(
+    client, fake_email, db_session, practice_tree
+):
+    headers = _student(client, fake_email)
+    _start(client, headers)
+    qid = practice_tree["numeric_id"]
+
+    client.post(f"/practice/questions/{qid}/show-solution", headers=headers)
+
+    session = (
+        db_session.query(PracticeSession)
+        .filter_by(user_id=_student_id(db_session))
+        .one()
+    )
+    marker = (
+        db_session.query(QuestionAttempt).filter_by(question_id=qid).one()
+    )
+    assert marker.attempt_no == 0
+    assert marker.practice_session_id == session.id
+
+
+def test_submitting_without_starting_a_session_leaves_the_attempt_standalone(
+    client, fake_email, db_session, practice_tree
+):
+    headers = _student(client, fake_email)
+    qid = practice_tree["single_id"]
+
+    client.post(
+        f"/practice/questions/{qid}/submit",
+        json={"answer": "b"},
+        headers=headers,
+    )
+
+    attempt = (
+        db_session.query(QuestionAttempt).filter_by(question_id=qid).one()
+    )
+    assert attempt.practice_session_id is None
 
 
 # -- show solution -----------------------------------------------------
