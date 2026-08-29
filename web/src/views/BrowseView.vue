@@ -76,13 +76,20 @@ watch(() => route.fullPath, load, { immediate: true })
 
     <h1>{{ level.heading }}</h1>
 
-    <RouterLink
-      v-if="route.name === 'learn-unit'"
-      class="timed-cta"
-      :to="{ name: 'learn-timed-quiz', params: { unitId: route.params.unitId } }"
-    >
-      Start a timed quiz for this unit →
-    </RouterLink>
+    <div v-if="route.name === 'learn-unit'" class="unit-ctas">
+      <RouterLink
+        class="unit-cta"
+        :to="{ name: 'learn-mixed-practice', params: { unitId: route.params.unitId } }"
+      >
+        Mixed practice for this unit →
+      </RouterLink>
+      <RouterLink
+        class="unit-cta"
+        :to="{ name: 'learn-timed-quiz', params: { unitId: route.params.unitId } }"
+      >
+        Start a timed quiz for this unit →
+      </RouterLink>
+    </div>
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="error" class="form-error">{{ error }}</p>
@@ -128,9 +135,14 @@ h1 {
 .tree-list a.router-link-active {
   text-decoration: underline;
 }
-.timed-cta {
-  display: inline-block;
+.unit-ctas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
   margin: 0.25rem 0 1rem;
+}
+.unit-cta {
+  display: inline-block;
   padding: 0.6rem 0.9rem;
   border: 1px solid var(--color-primary);
   border-radius: 8px;

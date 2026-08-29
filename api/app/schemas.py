@@ -145,6 +145,16 @@ class StartPracticeRequest(BaseModel):
     topic_slug: str = Field(min_length=1)
 
 
+class StartMixedPracticeRequest(BaseModel):
+    # `unit` or `year_level` — what `scope_id` points at (a `units.id` or a
+    # `year_levels.id`). Topic-scoped practice is the existing Topic flow.
+    scope_type: str = Field(pattern="^(unit|year_level)$")
+    scope_id: int = Field(ge=1)
+    # Target size of the frozen set; a null falls back to the ≈ 10 default and
+    # a scope with fewer eligible questions yields a smaller set.
+    question_count: int | None = Field(default=None, ge=1, le=50)
+
+
 class QuestionOptionOut(BaseModel):
     """An MCQ choice as the student sees it — no hint which one is correct."""
 
@@ -176,6 +186,18 @@ class PracticeQuestionOut(BaseModel):
 
 class PracticeSessionOut(BaseModel):
     topic: TopicRef
+    questions: list[PracticeQuestionOut]
+
+
+class MixedSessionOut(BaseModel):
+    """A mixed practice run: a set sampled across a Unit / Year level at
+    creation, then worked question-at-a-time with immediate feedback (like Topic
+    practice — nothing is withheld). `scope_label` titles the run."""
+
+    session_id: int
+    mode: str
+    scope_type: str
+    scope_label: str
     questions: list[PracticeQuestionOut]
 
 

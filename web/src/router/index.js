@@ -96,6 +96,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/learn/units/:unitId/mixed-practice',
+    name: 'learn-mixed-practice',
+    component: () => import('../views/MixedPracticeView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/mentisq',
     name: 'mentisq',
     component: () => import('../views/MentisQView.vue'),

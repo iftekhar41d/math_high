@@ -11,32 +11,44 @@ can only practise `published` Topics; a `ContentAdmin` may also practise drafts
 
 from __future__ import annotations
 
+import random
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.auth.dependencies import require_verified_user
 from app.clock import Clock, get_clock
 from app.content_access import topic_is_published
 from app.database import get_db
 from app.models import (
+    PRACTICE_MODE_MIXED,
     PRACTICE_MODE_TIMED,
     PRACTICE_MODE_TOPIC,
     PRACTICE_SCOPE_TOPIC,
     PRACTICE_SCOPE_UNIT,
+    PRACTICE_SCOPE_YEAR_LEVEL,
     QUESTION_MULTI_PART,
+    SNAPSHOT_DIMENSION_SKILL_TAG,
+    PerformanceSnapshot,
     PracticeSession,
     PracticeSessionQuestion,
     Question,
     QuestionAttempt,
+    Subject,
     Topic,
     Unit,
     User,
+    YearLevel,
     is_content_admin,
 )
 from app.practice.grading import grade_parts, is_correct
+from app.practice.mixed import (
+    DEFAULT_MIXED_QUESTION_COUNT,
+    Candidate,
+    select_mixed_questions,
+)
 from app.practice.payload import public_question
 from app.practice.settings import (
     default_question_seconds,
@@ -44,10 +56,12 @@ from app.practice.settings import (
 )
 from app.practice.timed import Countdown, proportion_correct, total_time_limit
 from app.schemas import (
+    MixedSessionOut,
     PracticeSessionOut,
     SessionReviewOut,
     SessionReviewQuestionOut,
     SolutionResponse,
+    StartMixedPracticeRequest,
     StartPracticeRequest,
     StartTimedQuizRequest,
     SubmitAnswerRequest,
@@ -192,6 +206,133 @@ def start_session(
     return PracticeSessionOut(
         topic=TopicRef.model_validate(topic),
         questions=[public_question(q) for q in questions],
+    )
+
+
+# -- mixed practice mode --------------------------------------------------
+#
+# A `mixed` `PracticeSession` samples its frozen set across a Unit or Year level
+# at creation, weighted toward the SkillTags where the caller's cached
+# `PerformanceSnapshot` mastery is lowest. "No mastery data yet" is judged
+# **per scope**: a student with snapshots elsewhere but none for any SkillTag in
+# *this* scope still gets the even round-robin coverage (spec story 15 — "new to
+# a Unit"). The weighting is fixed at this one call — no within-session
+# adaptation. Feedback is *not* withheld: `submit_answer` / `show-solution`
+# behave exactly as for `topic` practice (a mixed run is not a `timed` run, so
+# `_open_timed_session_for` never matches it, and `_active_session_id` links
+# each attempt to the open mixed run that froze the question).
+
+
+def _resolve_mixed_scope(
+    db: Session, scope_type: str, scope_id: int, user: User
+) -> tuple[list[Question], str]:
+    """The scope entity's practisable Questions (SkillTags + Topic publish state
+    eager-loaded) and a display label, in one place. 404 if the entity is gone.
+    """
+    if scope_type == PRACTICE_SCOPE_UNIT:
+        scope = db.get(Unit, scope_id)
+        label = scope.title if scope is not None else None
+    else:  # PRACTICE_SCOPE_YEAR_LEVEL
+        scope = db.get(YearLevel, scope_id)
+        label = scope.name if scope is not None else None
+    if scope is None:
+        raise _not_found(scope_type.replace("_", " "))
+
+    query = (
+        select(Question)
+        .join(Topic, Topic.id == Question.topic_id)
+        .options(
+            selectinload(Question.skill_tags),
+            selectinload(Question.topic).selectinload(Topic.lecture_content),
+        )
+    )
+    if scope_type == PRACTICE_SCOPE_UNIT:
+        query = query.where(Topic.unit_id == scope_id).order_by(
+            Topic.order, Question.id
+        )
+    else:
+        query = (
+            query.join(Unit, Unit.id == Topic.unit_id)
+            .join(Subject, Subject.id == Unit.subject_id)
+            .where(Subject.year_level_id == scope_id)
+            .order_by(Unit.order, Topic.order, Question.id)
+        )
+    questions = [
+        q
+        for q in db.scalars(query).unique().all()
+        if _visible_to(user, q.topic)
+    ]
+    return questions, label
+
+
+@router.post("/mixed-sessions", response_model=MixedSessionOut)
+def start_mixed_session(
+    body: StartMixedPracticeRequest,
+    db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
+    user: User = Depends(require_verified_user),
+) -> MixedSessionOut:
+    candidates_q, label = _resolve_mixed_scope(
+        db, body.scope_type, body.scope_id, user
+    )
+    if not candidates_q:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This scope has no practice questions yet.",
+        )
+
+    # Only this scope's SkillTags decide weighted-vs-cold-start, so a student
+    # with history in other Units still gets even coverage here.
+    scope_tag_ids = {t.id for q in candidates_q for t in q.skill_tags}
+    mastery = {
+        row.dimension_id: row.mastery
+        for row in db.scalars(
+            select(PerformanceSnapshot).where(
+                PerformanceSnapshot.user_id == user.id,
+                PerformanceSnapshot.dimension == SNAPSHOT_DIMENSION_SKILL_TAG,
+                PerformanceSnapshot.dimension_id.in_(scope_tag_ids),
+            )
+        )
+    }
+
+    count = body.question_count or DEFAULT_MIXED_QUESTION_COUNT
+    chosen_ids = select_mixed_questions(
+        [
+            Candidate(
+                question_id=q.id,
+                difficulty=q.difficulty,
+                skill_tag_ids=tuple(t.id for t in q.skill_tags),
+            )
+            for q in candidates_q
+        ],
+        skill_mastery=mastery,
+        question_count=count,
+        rng=random.Random(),
+    )
+    by_id = {q.id: q for q in candidates_q}
+    chosen = [by_id[qid] for qid in chosen_ids]
+
+    session = PracticeSession(
+        user_id=user.id,
+        mode=PRACTICE_MODE_MIXED,
+        scope_type=body.scope_type,
+        scope_id=body.scope_id,
+        question_count=len(chosen),
+        started_at=clock.now(),
+        questions=[
+            PracticeSessionQuestion(question_id=q.id, position=i)
+            for i, q in enumerate(chosen)
+        ],
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return MixedSessionOut(
+        session_id=session.id,
+        mode=session.mode,
+        scope_type=session.scope_type,
+        scope_label=label,
+        questions=[public_question(q) for q in chosen],
     )
 
 

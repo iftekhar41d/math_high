@@ -135,6 +135,21 @@ export const showSolution = (questionId) =>
     auth: true,
   })
 
+// -- mixed practice mode --------------------------------------------------
+// Start a fresh mixed run over a Unit (or Year level): a set sampled across the
+// scope, weighted toward the student's weaker SkillTags. Immediate feedback,
+// like Topic practice. `questionCount` is optional (defaults to ~10 server-side).
+export const startMixedPractice = (scopeType, scopeId, questionCount) =>
+  request('/practice/mixed-sessions', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({
+      scope_type: scopeType,
+      scope_id: Number(scopeId),
+      ...(questionCount ? { question_count: questionCount } : {}),
+    }),
+  })
+
 // -- timed quiz mode --------------------------------------------------------
 // Start a fresh timed quiz over a Unit (each call is a new, independent run).
 export const startTimedQuiz = (unitId) =>

@@ -183,6 +183,31 @@ solutions. `GET` returns the open quiz (public questions + `remaining_seconds` +
 answers so far, for reload-resume) or, once submitted, the review. Each start is
 a new `PracticeSession`; retakes are unlimited.
 
+**Mixed practice mode** (`mode = mixed`, `scope_type = unit` | `year_level`)
+adds a fourth pure module, `mixed.py` — `select_mixed_questions(candidates, *,
+skill_mastery, question_count, rng)` returning the ordered ids to freeze, no DB
+/ clock (deterministic given its seeded `rng`). `POST /practice/mixed-sessions`
+(`{scope_type, scope_id, question_count?}`) gathers every question the caller
+may practise in the scope, reads their `PerformanceSnapshot` rows
+(`dimension = skill_tag`) **for the scope's SkillTags only** into a
+`skill_tag_id → mastery` map, and samples the set **once at creation** (no
+within-session adaptation). With ≥ 1 in-scope snapshot the draw is weighted
+(each SkillTag weight `1 - mastery`, floored at `0.05`; a question's weight is
+the mean of its tags'; Efraimidis–Spirakis without replacement); with none —
+including a student with history in other Units but not this one — it falls back
+to even round-robin SkillTag coverage.
+Either way the frozen set is ordered difficulty-ascending. `question_count`
+defaults to `DEFAULT_MIXED_QUESTION_COUNT` (10, a named constant in `mixed.py`)
+and a scope with fewer eligible questions yields a smaller set. Feedback is
+**not** withheld — `mixed` is not `timed`, so `_open_timed_session_for` never
+matches it and `submit` / `show-solution` behave exactly as for `topic`
+practice, with `_active_session_id` linking each attempt to the open mixed run.
+`time_limit_seconds` / `submitted_at` / `score` stay null. Each start is a new
+`PracticeSession`; no migration (the `mixed` / `year_level` constants already
+existed). SPA: `web/src/views/MixedPracticeView.vue` + route
+`learn-mixed-practice` (`/learn/units/:unitId/mixed-practice`), reached from a
+CTA on the unit's topic list in `BrowseView.vue`.
+
 ### CAS equivalence (`app/cas/`)
 A pure module in the mould of `grading.py` — no DB, no clock, no network, no
 injectable seam (SymPy is deterministic and offline; `sympy` is the one new
