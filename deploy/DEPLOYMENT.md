@@ -47,6 +47,8 @@ serves directly, and every push to `main` redeploys via GitHub Actions.
 | `setup-vps.sh` | One-time provisioning script, run on the VPS | — |
 | `nginx.conf` | nginx site template | `__DOMAIN__`, `__APP_DIR__` filled by `sed` at setup |
 | `math-high-api.service` | systemd unit template | `__DEPLOY_USER__`, `__APP_DIR__` filled by `sed` at setup |
+| `math-high-snapshots.service` | one-shot mastery recompute, run by the timer | `__DEPLOY_USER__`, `__APP_DIR__` filled by `sed` at setup |
+| `math-high-snapshots.timer` | nightly schedule for the recompute (03:17) | — |
 | `../.github/workflows/deploy.yml` | GitHub Actions deploy job (SSH) | — |
 | `check-vps-usage.sh` | Local-only ops helper, **git-ignored** (hardcodes this host) | — |
 
@@ -148,14 +150,18 @@ What the script does, in order:
    `sudo systemctl restart math-high-api`.
 7. Renders `math-high-api.service` → `/etc/systemd/system/`, `daemon-reload`,
    `enable --now`.
-8. Renders `nginx.conf` → `/etc/nginx/sites-available/math-high`, symlinks it into
+8. Renders `math-high-snapshots.service` and copies `math-high-snapshots.timer`
+   → `/etc/systemd/system/`, then `enable --now` the timer — the nightly
+   `python -m app.analytics.recompute` that refreshes the cached mastery
+   snapshots.
+9. Renders `nginx.conf` → `/etc/nginx/sites-available/math-high`, symlinks it into
    `sites-enabled/`, removes the default site, `nginx -t`, `reload`.
-9. Writes `/etc/sudoers.d/math-high-deploy` granting the deploy user passwordless
-   sudo for **exactly** `systemctl restart math-high-api` and
-   `systemctl reload nginx` — nothing else — then `visudo -c` to validate.
-10. If `LETSENCRYPT_EMAIL` is set and `DOMAIN` resolves: installs certbot and runs
+10. Writes `/etc/sudoers.d/math-high-deploy` granting the deploy user passwordless
+    sudo for **exactly** `systemctl restart math-high-api` and
+    `systemctl reload nginx` — nothing else — then `visudo -c` to validate.
+11. If `LETSENCRYPT_EMAIL` is set and `DOMAIN` resolves: installs certbot and runs
     it non-interactively with `--redirect`.
-11. Prints the app dir, service status command, and the exact GitHub secret values
+12. Prints the app dir, service status command, and the exact GitHub secret values
     to set.
 
 ### 4. GitHub repo secrets
@@ -327,10 +333,11 @@ content on deploy.
 
 ```
 git fetch origin main
-git reset --hard origin/main          # server-side local changes are discarded
+git reset --hard origin/main               # server-side local changes are discarded
 cd api && .venv/bin/pip install -r requirements.txt
-.venv/bin/alembic upgrade head        # apply migrations before the restart
-.venv/bin/python -m app.ingest        # load course content from api/content/
+.venv/bin/alembic upgrade head             # apply migrations before the restart
+.venv/bin/python -m app.ingest             # load course content from api/content/
+.venv/bin/python -m app.analytics.recompute --full  # backfill mastery snapshots
 cd ../web && npm install && npm run build
 sudo systemctl restart math-high-api
 sudo systemctl reload nginx
@@ -362,6 +369,7 @@ pass `FORCE_NGINX=1`.
 | `APP_DIR/api/content/` | course manifest + lecture Markdown, **in git**; loaded by `python -m app.ingest` on deploy |
 | `APP_DIR/web/dist` | built frontend nginx serves |
 | `/etc/systemd/system/math-high-api.service` | rendered unit (real user/paths) |
+| `/etc/systemd/system/math-high-snapshots.{service,timer}` | nightly mastery recompute (rendered service + timer) |
 | `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, `OPENROUTER_API_KEY` / `OPENROUTER_MODEL`, `SMTP_*`); mode 600, **not** in git |
 | `/etc/nginx/sites-available/math-high` | rendered site (real domain, + certbot's 443 block) |
 | `/etc/nginx/sites-enabled/math-high` | symlink to the above |

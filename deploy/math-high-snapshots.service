@@ -1,0 +1,14 @@
+[Unit]
+Description=math-high performance-snapshot recompute (one-shot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=__DEPLOY_USER__
+WorkingDirectory=__APP_DIR__/api
+# Same runtime env as the API service (DATABASE_URL etc.). The leading "-"
+# means "don't fail if the file is missing".
+EnvironmentFile=-/etc/math-high-api.env
+# Incremental by default: only students with activity since the last successful
+# run are recomputed. The deploy workflow runs a `--full` backfill separately.
+ExecStart=__APP_DIR__/api/.venv/bin/python -m app.analytics.recompute

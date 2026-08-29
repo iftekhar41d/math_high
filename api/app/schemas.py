@@ -177,8 +177,10 @@ class SubmitAnswerRequest(BaseModel):
 class SubmitAnswerResponse(BaseModel):
     is_correct: bool
     attempt_no: int
-    # Returned from the first submission on, regardless of correctness.
-    worked_solution: str
+    # The worked solution once `attempt_no` reaches the
+    # `solution_reveal_after_attempts` Setting (default 1 — i.e. from the first
+    # submission on, regardless of correctness); `null` before then.
+    worked_solution: str | None
 
 
 class SolutionResponse(BaseModel):

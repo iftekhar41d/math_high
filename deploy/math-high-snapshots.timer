@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly math-high performance-snapshot recompute
+
+[Timer]
+# Every night at 03:17 (server local time). Persistent so a run missed while
+# the box was off fires on the next boot.
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

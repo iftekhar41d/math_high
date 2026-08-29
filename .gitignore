@@ -8,6 +8,9 @@ venv/
 node_modules/
 web/dist/
 
+# Dev server logs
+*.log
+
 # Env / secrets
 .env
 *.local

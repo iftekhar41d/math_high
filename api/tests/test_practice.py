@@ -372,6 +372,64 @@ def test_show_solution_before_any_submission_writes_a_marker_row(
     assert after["attempt_no"] == 1
 
 
+# -- solution_reveal_after_attempts Setting ---------------------------------
+
+
+def test_worked_solution_comes_back_from_the_first_submission_by_default(
+    client, fake_email, practice_tree
+):
+    headers = _student(client, fake_email)
+    qid = practice_tree["numeric_id"]
+
+    first = client.post(
+        f"/practice/questions/{qid}/submit",
+        json={"answer": 0.0},
+        headers=headers,
+    ).json()
+    assert first["worked_solution"] == "12 / 7 = 1.714..., which rounds to 1.71."
+
+
+def test_setting_defers_the_worked_solution_in_the_submit_response(
+    client, fake_email, db_session, practice_tree
+):
+    from app.models import Setting
+    from app.practice.settings import SETTING_SOLUTION_REVEAL_AFTER_ATTEMPTS
+
+    db_session.add(
+        Setting(key=SETTING_SOLUTION_REVEAL_AFTER_ATTEMPTS, value="2")
+    )
+    db_session.commit()
+
+    headers = _student(client, fake_email)
+    qid = practice_tree["numeric_id"]
+
+    first = client.post(
+        f"/practice/questions/{qid}/submit",
+        json={"answer": 0.0},
+        headers=headers,
+    ).json()
+    assert first["attempt_no"] == 1
+    assert first["worked_solution"] is None
+
+    second = client.post(
+        f"/practice/questions/{qid}/submit",
+        json={"answer": 0.0},
+        headers=headers,
+    ).json()
+    assert second["attempt_no"] == 2
+    assert second["worked_solution"] == (
+        "12 / 7 = 1.714..., which rounds to 1.71."
+    )
+
+    # The explicit "show solution" request is never gated by the Setting.
+    shown = client.post(
+        f"/practice/questions/{qid}/show-solution", headers=headers
+    ).json()
+    assert shown["worked_solution"] == (
+        "12 / 7 = 1.714..., which rounds to 1.71."
+    )
+
+
 def test_submitting_to_a_draft_topics_question_is_404_for_a_student(
     client, fake_email, practice_tree
 ):

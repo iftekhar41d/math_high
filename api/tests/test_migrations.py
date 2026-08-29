@@ -25,7 +25,10 @@ def test_upgrade_head_on_a_fresh_database(tmp_path, monkeypatch):
 
     engine = create_engine(db_url)
     try:
-        assert "alembic_version" in set(inspect(engine).get_table_names())
+        tables = set(inspect(engine).get_table_names())
+        assert "alembic_version" in tables
+        # A later migration's table, to catch a broken revision chain.
+        assert "performance_snapshots" in tables
         with engine.connect() as conn:
             version = conn.execute(
                 text("SELECT version_num FROM alembic_version")

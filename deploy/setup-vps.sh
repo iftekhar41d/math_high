@@ -116,6 +116,13 @@ sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__DEPLOY_USER__|$DEPLOY_USER|g" \
 sudo systemctl daemon-reload
 sudo systemctl enable --now math-high-api
 
+echo "==> Installing the nightly performance-snapshot recompute timer"
+sed -e "s|__APP_DIR__|$APP_DIR|g" -e "s|__DEPLOY_USER__|$DEPLOY_USER|g" \
+  "$APP_DIR/deploy/math-high-snapshots.service" | sudo tee /etc/systemd/system/math-high-snapshots.service >/dev/null
+sudo cp "$APP_DIR/deploy/math-high-snapshots.timer" /etc/systemd/system/math-high-snapshots.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now math-high-snapshots.timer
+
 echo "==> Installing nginx site config"
 if sudo grep -q "managed by Certbot" "$NGINX_SITE" 2>/dev/null && [ "${FORCE_NGINX:-0}" != "1" ]; then
   echo "    $NGINX_SITE already has a Certbot-managed TLS block — leaving it as is."

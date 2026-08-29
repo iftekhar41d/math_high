@@ -137,6 +137,33 @@ MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
 /practice/questions/{id}/show-solution` sets `solution_viewed` on the latest
 attempt, or writes a marker row (`attempt_no = 0`) if there's no submission yet.
 Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
+`submit` only returns `worked_solution` once `attempt_no` reaches the
+`practice.solution_reveal_after_attempts` `Setting` (`app/practice/settings.py`,
+default 1 — from the first submission on); the explicit `show-solution` request
+is never gated by it.
+
+### Analytics recompute (`app/analytics/`)
+An out-of-band job that turns stored `QuestionAttempt` / `TopicView` history
+into cached `PerformanceSnapshot` rows (one per (user, `dimension`,
+`dimension_id`), `dimension` = `topic` | `skill_tag`). Nothing on the request
+path writes there. Reusable core, thin CLI:
+- `mastery.py` — pure maths. `mastery` is an exponentially time-weighted
+  proportion correct over the **first** graded attempt of each Question (weight
+  `0.5 ** (age_days / half_life)`, half-life from the
+  `analytics.mastery_half_life_days` `Setting`, default 14). A solution viewed
+  *before* the first submission forces that Question incorrect; `mentisq_used`
+  is ignored. `trend` is the bucketed sign of (mastery over the last 30 days −
+  mastery over the prior 30), same weighting as the headline figure, with a dead
+  zone for `flat`.
+- `settings.py` — `AnalyticsSettings`: typed access to the half-life and the
+  `analytics.recompute_watermark` (ISO instant of the last successful run).
+- `recompute.py` — `recompute(db, clock, *, full=False)`: incremental by
+  default (only users with a `QuestionAttempt`/`TopicView` after the watermark;
+  an empty incremental run writes nothing, watermark untouched), fans each
+  first-attempt outcome to its Topic and every SkillTag, upserts snapshots, then
+  advances the watermark. `python -m app.analytics.recompute [--full]` is the
+  wrapper. A nightly `math-high-snapshots` systemd timer runs it; the deploy
+  workflow runs one `--full` backfill after `alembic upgrade head`.
 
 ### MentisQ guided exchange (`app/mentisq/`)
 The AI tutor, structured as a reusable core the thin router wraps:
@@ -210,11 +237,13 @@ Full reference: [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md).
 Push to `main` → `.github/workflows/deploy.yml` SSHes into the VPS and runs:
 `git reset --hard origin/main` → `pip install -r requirements.txt` →
 `alembic upgrade head` → `python -m app.ingest` (load repo content) →
+`python -m app.analytics.recompute --full` (backfill mastery snapshots) →
 `npm install && npm run build` → `systemctl restart math-high-api` + `reload nginx`.
 
 The deploy user's sudo is scoped to exactly those two `systemctl` commands. A fresh
 VPS is bootstrapped once with `deploy/setup-vps.sh [domain] [repo-url] [app-dir]`
-(installs Python/Node/nginx, venv, systemd unit, nginx site, scoped sudoers rule).
+(installs Python/Node/nginx, venv, systemd units incl. the nightly
+`math-high-snapshots` timer, nginx site, scoped sudoers rule).
 Every setting has a default in the script's CONFIG block and is overridable by a
 positional arg or a same-named env var; set `LETSENCRYPT_EMAIL` to also run certbot
 non-interactively. The nginx template lives at [deploy/nginx.conf](deploy/nginx.conf)

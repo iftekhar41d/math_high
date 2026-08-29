@@ -28,6 +28,7 @@ from app.models import (
 )
 from app.practice.grading import is_correct
 from app.practice.payload import public_question
+from app.practice.settings import solution_reveal_after_attempts
 from app.schemas import (
     PracticeSessionOut,
     SolutionResponse,
@@ -126,10 +127,15 @@ def submit_answer(
     )
     db.commit()
 
+    reveal_after = solution_reveal_after_attempts(db)
     return SubmitAnswerResponse(
         is_correct=correct,
         attempt_no=attempt_no,
-        worked_solution=question.worked_solution,
+        worked_solution=(
+            question.worked_solution
+            if attempt_no >= reveal_after
+            else None
+        ),
     )
 
 
@@ -142,6 +148,9 @@ def show_solution(
     clock: Clock = Depends(get_clock),
     user: User = Depends(require_verified_user),
 ) -> SolutionResponse:
+    # This is the explicit "show me the solution" request — it always returns
+    # it. Only the automatic reveal in `submit` is gated by the
+    # `solution_reveal_after_attempts` Setting.
     question = _practisable_question_or_404(db, question_id, user)
 
     latest = db.scalar(

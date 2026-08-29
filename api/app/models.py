@@ -29,6 +29,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -485,11 +486,62 @@ class MentisQMessage(Base):
 
 class Setting(Base):
     """A tiny key/value store for `SuperAdmin`-managed system configuration.
-    Values are stored as strings; `app/mentisq/settings.py` owns the typed
-    accessors and the in-code defaults used when a key is absent.
+    Values are stored as strings; `app/mentisq/settings.py` and
+    `app/analytics/settings.py` own the typed accessors and the in-code
+    defaults used when a key is absent.
     """
 
     __tablename__ = "settings"
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[str] = mapped_column(String)
+
+
+# -- performance snapshots (analytics) -------------------------------------
+#
+# Cached mastery figures, rebuilt out-of-band by
+# `python -m app.analytics.recompute` from the `QuestionAttempt` / `TopicView`
+# history the platform already stores. Nothing on the request path writes here;
+# the student dashboard reads these rows back.
+
+SNAPSHOT_DIMENSION_TOPIC = "topic"
+SNAPSHOT_DIMENSION_SKILL_TAG = "skill_tag"
+
+TREND_UP = "up"
+TREND_FLAT = "flat"
+TREND_DOWN = "down"
+
+
+class PerformanceSnapshot(Base):
+    """One student's cached mastery along one dimension — a Topic or a
+    SkillTag they have attempted. `mastery` is a recency-weighted proportion
+    correct over the first graded attempt of each Question, `trend` is the
+    bucketed direction of change across the last two 30-day windows, and
+    `sample_size` is the number of contributing first attempts (the row is
+    written even when it is below 3). One row per (user, dimension,
+    dimension_id); `computed_at` stamps the recompute that produced it.
+    """
+
+    __tablename__ = "performance_snapshots"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # SNAPSHOT_DIMENSION_* — what `dimension_id` points at.
+    dimension: Mapped[str] = mapped_column(String)
+    # A `topics.id` or a `skill_tags.id`, per `dimension`. Not a ForeignKey:
+    # the column is polymorphic across two tables.
+    dimension_id: Mapped[int] = mapped_column(Integer)
+    mastery: Mapped[float] = mapped_column(Float)
+    # TREND_* — direction of recent change.
+    trend: Mapped[str] = mapped_column(String)
+    sample_size: Mapped[int] = mapped_column(Integer)
+    computed_at: Mapped[datetime] = mapped_column(UtcDateTime)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "dimension",
+            "dimension_id",
+            name="uq_performance_snapshots_user_dimension",
+        ),
+    )
