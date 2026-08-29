@@ -19,6 +19,7 @@ through the injected `MentisQLLMClient`. Nothing here touches HTTP.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -44,6 +45,8 @@ from app.models import (
     MentisQSession,
     User,
 )
+
+logger = logging.getLogger(__name__)
 
 # Shown verbatim when the provider does not complete a turn.
 FALLBACK_MESSAGE = (
@@ -274,7 +277,14 @@ class MentisQService:
             completion = self.llm.complete(
                 messages=messages, model=self.settings.model_name
             )
-        except LLMError:
+        except LLMError as exc:
+            # The student sees only FALLBACK_MESSAGE; the real reason (bad key,
+            # unknown model, timeout, provider outage) belongs in the log.
+            logger.warning(
+                "MentisQ provider call failed (model=%s): %s",
+                self.settings.model_name,
+                exc,
+            )
             self._persist_pair(
                 session,
                 now,

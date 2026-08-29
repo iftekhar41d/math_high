@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from app.email_sender import EmailMessage
-from app.mentisq.llm_client import LLMError, LLMTimeoutError
+from app.mentisq.llm_client import LLMError, LLMTimeoutError, OpenRouterLLMClient
 
 
 def test_fake_email_records_sent_messages(fake_email):
@@ -45,6 +45,14 @@ def test_fake_llm_can_be_switched_to_error(fake_llm):
     fake_llm.mode = "error"
     with pytest.raises(LLMError):
         fake_llm.complete(messages=[{"role": "user", "content": "x"}], model="m")
+
+
+def test_openrouter_client_without_a_key_fails_clearly_before_any_request():
+    # A blank key must not reach httpx (it becomes the illegal header "Bearer ").
+    with pytest.raises(LLMError, match="OPENROUTER_API_KEY is not set"):
+        OpenRouterLLMClient(api_key="").complete(
+            messages=[{"role": "user", "content": "hi"}], model="m"
+        )
 
 
 def test_fake_clock_is_advanceable(fake_clock):

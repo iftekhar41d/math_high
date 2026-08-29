@@ -54,6 +54,14 @@ class OpenRouterLLMClient(MentisQLLMClient):
     def complete(
         self, *, messages: list[dict[str, str]], model: str
     ) -> LLMCompletion:
+        if not self._api_key:
+            # An empty key would otherwise become the illegal header value
+            # "Bearer " and surface as an opaque httpx error.
+            raise LLMError(
+                "OPENROUTER_API_KEY is not set — the API process has no "
+                "OpenRouter credentials (start uvicorn with --env-file .env, "
+                "or set it in /etc/math-high-api.env)."
+            )
         payload = {
             "model": model,
             "messages": messages,
