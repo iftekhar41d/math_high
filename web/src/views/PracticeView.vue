@@ -7,6 +7,7 @@ import { reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import * as api from '../api'
 import { renderLecture } from '../lib/lecture'
+import AskMentisQ from '../components/AskMentisQ.vue'
 
 const route = useRoute()
 
@@ -186,6 +187,8 @@ async function reveal(q) {
             <h3>Worked solution</h3>
             <div class="lecture-body" v-html="render(qs[q.id].solution)" />
           </div>
+
+          <AskMentisQ :question-id="q.id" />
         </li>
       </ol>
     </template>

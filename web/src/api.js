@@ -134,3 +134,23 @@ export const showSolution = (questionId) =>
     method: 'POST',
     auth: true,
   })
+
+// -- MentisQ (AI tutor) --------------------------------------------------
+// `context` is one of { topic_slug } / { question_id } / {} (general question).
+export const askMentisQ = (content, context = {}) =>
+  request('/mentisq/messages', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ content, ...context }),
+  })
+
+// -- admin: MentisQ settings (SuperAdmin only) -------------------------
+export const getMentisQSettings = () =>
+  request('/admin/mentisq-settings', { auth: true })
+
+export const updateMentisQSettings = (payload) =>
+  request('/admin/mentisq-settings', {
+    method: 'PUT',
+    auth: true,
+    body: JSON.stringify(payload),
+  })

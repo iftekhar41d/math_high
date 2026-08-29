@@ -5,6 +5,7 @@ import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import * as api from '../api'
 import { renderLecture } from '../lib/lecture'
+import AskMentisQ from '../components/AskMentisQ.vue'
 
 const route = useRoute()
 
@@ -80,6 +81,8 @@ const isDraft = computed(
       >
         Practise this topic →
       </RouterLink>
+
+      <AskMentisQ :topic-slug="topic.slug" />
     </template>
   </article>
 </template>

@@ -49,3 +49,35 @@ def is_correct(
         )
 
     raise ValueError(f"unknown question type: {question_type!r}")
+
+
+def correct_answer_text(
+    question_type: str, answer_schema: dict[str, Any]
+) -> str:
+    """A short human-readable rendering of the correct answer, for MentisQ's
+    system prompt (it is never shown to the student). Lives here because this is
+    the module that already knows the `answer_schema` shape per type.
+    """
+    options = {
+        str(o["id"]): str(o["text"])
+        for o in answer_schema.get("options", [])
+    }
+
+    if question_type == QUESTION_MCQ_SINGLE:
+        cid = str(answer_schema.get("correct_option", ""))
+        return f"{cid}) {options.get(cid, '')}".strip()
+
+    if question_type == QUESTION_MCQ_MULTI:
+        cids = [str(c) for c in answer_schema.get("correct_options", [])]
+        return ", ".join(
+            f"{c}) {options.get(c, '')}".strip() for c in cids
+        )
+
+    if question_type == QUESTION_NUMERIC:
+        value = answer_schema.get("value")
+        tolerance = answer_schema.get("tolerance")
+        if tolerance:
+            return f"{value} (± {tolerance})"
+        return f"{value}"
+
+    raise ValueError(f"unknown question type: {question_type!r}")

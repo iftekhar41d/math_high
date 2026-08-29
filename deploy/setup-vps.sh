@@ -97,7 +97,7 @@ else
 JWT_SECRET=$JWT_SECRET_VALUE
 PUBLIC_BASE_URL=https://$DOMAIN
 AUTH_COOKIE_SECURE=1
-# OPENROUTER_API_KEY=      # ticket 06
+# OPENROUTER_API_KEY=      # MentisQ tutor; without it MentisQ calls fail to the fallback
 # SMTP_HOST=               # ticket 02 email delivery (logs instead until set)
 # SMTP_PORT=587
 # SMTP_USERNAME=

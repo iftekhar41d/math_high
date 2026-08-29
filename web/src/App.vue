@@ -1,5 +1,6 @@
 <script setup>
 // App shell: a header with nav and the routed view. Screens live in src/views.
+import { computed } from 'vue'
 import { RouterLink, RouterView, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from './stores/auth'
@@ -7,6 +8,8 @@ import { useAuthStore } from './stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 const { user, isAuthenticated } = storeToRefs(auth)
+
+const isSuperAdmin = computed(() => user.value?.role === 'super_admin')
 
 async function signOut() {
   await auth.logout()
@@ -21,6 +24,8 @@ async function signOut() {
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink v-if="isAuthenticated" to="/learn">Learn</RouterLink>
+        <RouterLink v-if="isAuthenticated" to="/mentisq">Ask MentisQ</RouterLink>
+        <RouterLink v-if="isSuperAdmin" to="/admin/mentisq">Settings</RouterLink>
         <RouterLink to="/about">About</RouterLink>
       </nav>
       <div class="spacer" />

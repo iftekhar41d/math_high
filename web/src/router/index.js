@@ -83,6 +83,18 @@ const routes = [
     component: () => import('../views/PracticeView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/mentisq',
+    name: 'mentisq',
+    component: () => import('../views/MentisQView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/admin/mentisq',
+    name: 'admin-mentisq',
+    component: () => import('../views/AdminMentisQView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

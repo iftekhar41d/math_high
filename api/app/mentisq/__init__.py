@@ -1,5 +1,10 @@
 """MentisQ — the AI tutor, a module inside the Core API (not a separate service).
 
-Phase 1 holds only the LLM boundary (`llm_client`). Sessions, messages, the
-guided-mode prompt template, and the usage caps land in ticket 06.
+- `llm_client` — the OpenRouter boundary (the only code that talks to the provider).
+- `prompt` — the versioned guided-mode system prompt template + rendering.
+- `settings` — typed accessors over the `Setting` table for the model name and caps.
+- `service` — `MentisQService`: the guided exchange, cap checks, and persistence.
+
+The HTTP layer is `app.routers.mentisq` (student exchange) and `app.routers.admin`
+(the `SuperAdmin` settings endpoint).
 """

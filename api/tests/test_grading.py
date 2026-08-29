@@ -14,7 +14,7 @@ from app.models import (
     QUESTION_MCQ_SINGLE,
     QUESTION_NUMERIC,
 )
-from app.practice.grading import is_correct
+from app.practice.grading import correct_answer_text, is_correct
 
 
 # -- mcq_single ---------------------------------------------------------------
@@ -94,3 +94,35 @@ def test_numeric_rejects_non_numeric_input():
 def test_unknown_question_type_raises():
     with pytest.raises(ValueError):
         is_correct("essay", {}, "anything")
+
+
+# -- correct_answer_text (MentisQ context) -----------------------------------
+
+
+def test_correct_answer_text_renders_each_type():
+    single = {
+        "options": [{"id": "a", "text": "-8"}, {"id": "b", "text": "2"}],
+        "correct_option": "b",
+    }
+    assert correct_answer_text(QUESTION_MCQ_SINGLE, single) == "b) 2"
+
+    multi = {
+        "options": [
+            {"id": "a", "text": "-4"},
+            {"id": "b", "text": "0"},
+            {"id": "c", "text": "-1"},
+        ],
+        "correct_options": ["a", "c"],
+    }
+    assert correct_answer_text(QUESTION_MCQ_MULTI, multi) == "a) -4, c) -1"
+
+    assert (
+        correct_answer_text(QUESTION_NUMERIC, {"value": 1.71, "tolerance": 0.01})
+        == "1.71 (± 0.01)"
+    )
+    assert correct_answer_text(QUESTION_NUMERIC, {"value": 7}) == "7"
+
+
+def test_correct_answer_text_unknown_type_raises():
+    with pytest.raises(ValueError):
+        correct_answer_text("essay", {})

@@ -183,3 +183,40 @@ class SubmitAnswerResponse(BaseModel):
 
 class SolutionResponse(BaseModel):
     worked_solution: str
+
+
+# -- MentisQ (the AI tutor) ------------------------------------------------
+
+
+class MentisQAskRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+    # At most one context anchor. `topic_slug` for a lecture page, `question_id`
+    # for a practice question; neither for a general maths question.
+    topic_slug: str | None = Field(default=None, min_length=1)
+    question_id: int | None = Field(default=None, ge=1)
+
+
+class MentisQReplyOut(BaseModel):
+    # Null only when a usage cap blocked the message before a session was made.
+    session_id: int | None
+    # The tutor's guided reply, the fixed fallback, or the fixed limit-reached
+    # message — `status` says which.
+    reply: str
+    status: str  # "ok" | "failed" | "limit_reached"
+
+
+class MentisQSettingsOut(BaseModel):
+    model_name: str
+    daily_message_cap: int
+    per_student_monthly_cap_usd: float
+    global_monthly_cap_usd: float | None
+
+
+class MentisQSettingsUpdate(BaseModel):
+    """Every field optional — only those present are written. Passing
+    `global_monthly_cap_usd: null` explicitly clears the global ceiling."""
+
+    model_name: str | None = Field(default=None, min_length=1)
+    daily_message_cap: int | None = Field(default=None, ge=0)
+    per_student_monthly_cap_usd: float | None = Field(default=None, ge=0)
+    global_monthly_cap_usd: float | None = Field(default=None, ge=0)

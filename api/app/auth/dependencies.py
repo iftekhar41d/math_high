@@ -4,8 +4,8 @@
 the signature/expiry is bad or if the user's `token_generation` has moved past
 the value baked into the token (password reset, logout-all).
 `require_verified_user` additionally insists the email is confirmed — that is the
-gate every student endpoint should sit behind. Role-gated dependencies arrive
-with the admin endpoints (ticket 06).
+gate every student endpoint should sit behind. `require_super_admin` narrows
+that to the `SuperAdmin` role for the system-config endpoints (ticket 06).
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from app.auth.jwt import InvalidAccessToken, decode_access_token
 from app.auth.service import AuthService
 from app.clock import Clock, get_clock
 from app.database import get_db
-from app.models import User
+from app.models import User, is_super_admin
 
 _UNAUTH = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -55,5 +55,13 @@ def require_verified_user(user: User = Depends(get_current_user)) -> User:
     if not user.email_verified:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Email not verified"
+        )
+    return user
+
+
+def require_super_admin(user: User = Depends(require_verified_user)) -> User:
+    if not is_super_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="SuperAdmin only"
         )
     return user

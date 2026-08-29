@@ -10,7 +10,8 @@ Ticket 02 adds the auth tables: `User` plus the short-lived token tables
 association table, `LectureContent`, and the `TopicView` analytics event. The
 Ticket 04 adds the practice tables: `Question` (with its `answer_schema` JSON),
 `SkillTag` + the `question_skill_tags` association table, and `QuestionAttempt`.
-The MentisQ tables arrive with their own ticket.
+Ticket 06 adds the MentisQ tables (`MentisQSession`, `MentisQMessage`) and the
+`Setting` key/value store for `SuperAdmin` configuration.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sqlalchemy import (
     JSON,
     Boolean,
     Column,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -33,19 +35,24 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, UtcDateTime
 
-# Phase 1 registers students only. `ContentAdmin` is the one extra role this
-# ticket needs — it can see draft content — and the `role` column already
-# exists, so no migration is required to introduce it. `SuperAdmin` follows in
-# ticket 06. `CONTEXT.md` is the term authority (never bare "Admin").
+# Phase 1 registers students only. `ContentAdmin` sees draft content;
+# `SuperAdmin` manages system configuration (MentisQ model + usage caps). The
+# `role` column already exists, so introducing either is migration-free.
+# `CONTEXT.md` is the term authority (never bare "Admin").
 ROLE_STUDENT = "student"
 ROLE_CONTENT_ADMIN = "content_admin"
+ROLE_SUPER_ADMIN = "super_admin"
 
 
 def is_content_admin(user: "User") -> bool:
-    """A `ContentAdmin` sees draft content that is hidden from students. Lives
-    with the role constants; full role gating (`SuperAdmin` config endpoints)
-    arrives with ticket 06."""
+    """A `ContentAdmin` sees draft content that is hidden from students."""
     return user.role == ROLE_CONTENT_ADMIN
+
+
+def is_super_admin(user: "User") -> bool:
+    """A `SuperAdmin` reads and writes system configuration — the MentisQ model
+    name and the usage caps (ticket 06)."""
+    return user.role == ROLE_SUPER_ADMIN
 
 # `LectureContent.status` values. A Topic is "published" to students when it
 # has a `LectureContent` row in the `published` state; anything else is a draft
@@ -404,3 +411,85 @@ class QuestionAttempt(Base):
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
     )
+
+
+# -- MentisQ (the AI tutor) --------------------------------------------------
+#
+# A `MentisQSession` is one tutoring conversation belonging to a student,
+# optionally scoped to the Topic or Question it was launched from. Phase 1 UX is
+# a single exchange (one user turn + one assistant turn) and `mode` is always
+# `guided`, but the schema keeps a full message log from day one. Each
+# `MentisQMessage` carries the token usage and USD cost reported by the
+# provider — that is what the daily-message and monthly-spend caps read back.
+
+MENTISQ_MODE_GUIDED = "guided"
+
+MENTISQ_ROLE_USER = "user"
+MENTISQ_ROLE_ASSISTANT = "assistant"
+
+# `ok` messages count toward the usage caps; a `failed` turn (provider timeout /
+# outage / bad response) is stored for the record but metered against nothing.
+MENTISQ_STATUS_OK = "ok"
+MENTISQ_STATUS_FAILED = "failed"
+
+
+class MentisQSession(Base):
+    __tablename__ = "mentisq_sessions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    # At most one of these is set — the Topic or the Question the student asked
+    # from. Null for a general maths question.
+    context_topic_id: Mapped[int | None] = mapped_column(
+        ForeignKey("topics.id"), nullable=True
+    )
+    context_question_id: Mapped[int | None] = mapped_column(
+        ForeignKey("questions.id"), nullable=True
+    )
+    mode: Mapped[str] = mapped_column(String, default=MENTISQ_MODE_GUIDED)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now(), index=True
+    )
+
+    messages: Mapped[list[MentisQMessage]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="MentisQMessage.id",
+    )
+
+
+class MentisQMessage(Base):
+    __tablename__ = "mentisq_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("mentisq_sessions.id"), index=True
+    )
+    # MENTISQ_ROLE_* — the student's turn or the tutor's.
+    role: Mapped[str] = mapped_column(String)
+    content: Mapped[str] = mapped_column(Text)
+    # MENTISQ_STATUS_* — `failed` marks a turn the provider did not complete.
+    status: Mapped[str] = mapped_column(String, default=MENTISQ_STATUS_OK)
+    # Usage from the provider's response, split across the pair: prompt tokens on
+    # the user turn, completion tokens + `cost_usd` on the assistant turn. So
+    # every row's usage is real and `SUM(cost_usd)` counts each exchange once.
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now(), index=True
+    )
+
+    session: Mapped[MentisQSession] = relationship(back_populates="messages")
+
+
+class Setting(Base):
+    """A tiny key/value store for `SuperAdmin`-managed system configuration.
+    Values are stored as strings; `app/mentisq/settings.py` owns the typed
+    accessors and the in-code defaults used when a key is absent.
+    """
+
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[str] = mapped_column(String)

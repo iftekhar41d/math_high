@@ -131,6 +131,38 @@ MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
 attempt, or writes a marker row (`attempt_no = 0`) if there's no submission yet.
 Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 
+### MentisQ guided exchange (`app/mentisq/`)
+The AI tutor, structured as a reusable core the thin router wraps:
+- `llm_client.py` — the OpenRouter boundary (30s timeout, key from
+  `OPENROUTER_API_KEY`, never the DB). Raises `LLMError` / `LLMTimeoutError`.
+- `prompt.py` — the guided-mode system prompt is a **versioned template file**
+  (`prompts/guided_v1.md`, `GUIDED_PROMPT_VERSION`): no final answer on the first
+  reply, full worked solution only on explicit request, name the wrong step in
+  shared work, stay in maths, render maths as LaTeX. When launched from a Topic
+  or Question, that context (statement, correct answer, worked solution) is
+  injected into the `{context}` slot and **never** returned verbatim.
+- `settings.py` — `MentisQSettings`: typed accessors over the `Setting` key/value
+  table with in-code defaults for `model_name`, `daily_message_cap`,
+  `per_student_monthly_cap_usd` (50), `global_monthly_cap_usd` (nullable).
+- `service.py` — `MentisQService.post_message`: before any provider call, checks
+  the student's `ok` messages-today against `daily_message_cap`, their
+  month-to-date `cost_usd` sum against `per_student_monthly_cap_usd`, and the
+  global month sum against `global_monthly_cap_usd` if set; over any → a fixed
+  `limit_reached` reply, no LLM call, nothing persisted. A successful exchange
+  persists the user + assistant `MentisQMessage`, splitting the provider usage
+  across the pair (prompt tokens on the user turn, completion tokens + `cost_usd`
+  on the assistant turn) so `SUM(cost_usd)` counts each exchange once. A timeout
+  / outage / bad response returns `FALLBACK_MESSAGE`, stores both turns
+  `status = failed`, and is metered against nothing (the daily-cap count filters
+  to `role = user AND status = ok`). Time comes only from the injected `Clock`
+  (UTC day / month windows).
+
+`app/routers/mentisq.py` (`POST /mentisq/messages`) resolves the optional
+Topic/Question context and maps the result to `{session_id, reply, status}`.
+`app/routers/admin.py` (`GET`/`PUT /admin/mentisq-settings`) is gated by
+`require_super_admin` (`ROLE_SUPER_ADMIN`) — every other caller gets 403; a
+`null` `global_monthly_cap_usd` in the PUT body clears the ceiling.
+
 ### Content seeding (`app/ingest/`)
 Course content is authored as repo files under `api/content/`: `manifest.yaml`
 describes the Year Level → Subject → Unit → Topic tree (with `order`,
