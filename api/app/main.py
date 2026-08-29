@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, meta, profile
+from app.routers import auth, content, meta, profile
 
 # Only needed for local dev where the web dev server runs on a different
 # origin/port. In production, nginx proxies /api on the same origin as the
@@ -23,6 +23,7 @@ app.add_middleware(
 app.include_router(meta.router)
 app.include_router(auth.router)
 app.include_router(profile.router)
+app.include_router(content.router)
 
 
 @app.get("/health")

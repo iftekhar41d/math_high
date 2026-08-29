@@ -77,3 +77,66 @@ a {
   padding: 0.75rem 1rem;
   border-radius: 6px;
 }
+
+/* Rendered lecture content (see src/lib/lecture.js). Global, not scoped,
+   because the HTML is injected with v-html. */
+.lecture-body {
+  line-height: 1.65;
+  overflow-wrap: break-word;
+}
+.lecture-body h1,
+.lecture-body h2,
+.lecture-body h3 {
+  color: var(--color-primary);
+  line-height: 1.25;
+}
+.lecture-body img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+}
+.lecture-body pre {
+  overflow-x: auto;
+  background: var(--color-accent);
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+}
+/* KaTeX display maths can be wider than a phone — let it scroll on its own. */
+.lecture-body .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+.lecture-callout,
+.lecture-example {
+  margin: 1.25rem 0;
+  padding: 0.85rem 1.1rem;
+  border-radius: 8px;
+}
+.lecture-callout {
+  background: var(--color-accent);
+  border-left: 4px solid var(--color-primary);
+}
+.lecture-example {
+  border: 1px solid var(--color-accent);
+}
+.lecture-callout__title,
+.lecture-example__title {
+  font-weight: 700;
+  color: var(--color-primary);
+  margin: 0 0 0.4rem;
+}
+.lecture-callout > :last-child,
+.lecture-example > :last-child {
+  margin-bottom: 0;
+}
+
+@media (max-width: 480px) {
+  .app {
+    padding: 0 0.75rem;
+  }
+  .app-header {
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+  }
+}

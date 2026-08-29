@@ -24,6 +24,7 @@ serves directly, and every push to `main` redeploys via GitHub Actions.
   browser  ─────────────────────────►  nginx
                                         │
                         static files    ├── /            → APP_DIR/web/dist  (Vue build)
+                        static files    ├── /media/*     → APP_DIR/api/data/media/  (lecture images)
                         reverse proxy    └── /api/*       → 127.0.0.1:8000/*  (strips /api)
                                                                 │
                                                           uvicorn (systemd: math-high-api)
@@ -325,6 +326,7 @@ pass `FORCE_NGINX=1`.
 | `APP_DIR` (`/home/deploy/math-high`) | repo checkout |
 | `APP_DIR/api/.venv` | API virtualenv |
 | `APP_DIR/api/data/app.db` | SQLite database (survives deploys; **not** in git) |
+| `APP_DIR/api/data/media/` | lecture images; nginx serves them at `/media/` (created by `setup-vps.sh`, survives deploys, **not** in git) |
 | `APP_DIR/web/dist` | built frontend nginx serves |
 | `/etc/systemd/system/math-high-api.service` | rendered unit (real user/paths) |
 | `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, later `OPENROUTER_API_KEY` / `SMTP_*`); mode 600, **not** in git |

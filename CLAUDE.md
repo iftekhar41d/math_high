@@ -90,6 +90,13 @@ outbound email; logs instead of sending when `SMTP_HOST` is unset), and
 OpenRouter; 30s timeout; key from `OPENROUTER_API_KEY`, never the DB). Override
 them with `app.dependency_overrides` in tests; don't reach past them.
 
+### Media storage (`app/storage.py`)
+Lecture images go through a `save` / `get_url` seam (`MediaStorage`), so moving
+off local disk to S3/R2 later is one class. Phase 1 impl is `LocalMediaStorage`
+(files under `MEDIA_ROOT`, default `api/data/media/`); URLs are `/media/<key>`.
+nginx serves `location /media/` straight off disk (`deploy/nginx.conf`) —
+those requests never reach the API. Injected via `Depends(get_media_storage)`.
+
 ### Auth (`app/auth/`)
 `AuthService` (`app/auth/service.py`) is the reusable core — registration, email
 verification, login, rotating refresh sessions, password reset, login rate

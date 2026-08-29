@@ -16,6 +16,9 @@ web/dist/
 api/data/*.db
 api/data/*.db-journal
 
+# Lecture media (written at runtime by the storage abstraction; seeded per host)
+api/data/media/
+
 # OS / editor
 .DS_Store
 .vscode/

@@ -5,23 +5,49 @@ by `migrations/env.py` so that `--autogenerate` sees every model's metadata.
 
 Ticket 02 adds the auth tables: `User` plus the short-lived token tables
 (`EmailVerificationToken`, `PasswordResetToken`, `RefreshToken`) and
-`LoginAttempt` for login rate limiting. The content/practice/MentisQ tables
-arrive with their own tickets.
+`LoginAttempt` for login rate limiting. Ticket 03 adds the content tree
+(`YearLevel` → `Subject` → `Unit` → `Topic`), the `topic_prerequisites`
+association table, `LectureContent`, and the `TopicView` analytics event. The
+practice/MentisQ tables arrive with their own tickets.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, func
+from sqlalchemy import (
+    Boolean,
+    Column,
+    ForeignKey,
+    Integer,
+    String,
+    Table,
+    Text,
+    func,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, UtcDateTime
 
-# Phase 1 only registers students. The column exists so ticket 06 can add the
-# admin roles without a migration; `CONTEXT.md` is the term authority
-# (`ContentAdmin` / `SuperAdmin`, never bare "Admin") when those land.
+# Phase 1 registers students only. `ContentAdmin` is the one extra role this
+# ticket needs — it can see draft content — and the `role` column already
+# exists, so no migration is required to introduce it. `SuperAdmin` follows in
+# ticket 06. `CONTEXT.md` is the term authority (never bare "Admin").
 ROLE_STUDENT = "student"
+ROLE_CONTENT_ADMIN = "content_admin"
+
+
+def is_content_admin(user: "User") -> bool:
+    """A `ContentAdmin` sees draft content that is hidden from students. Lives
+    with the role constants; full role gating (`SuperAdmin` config endpoints)
+    arrives with ticket 06."""
+    return user.role == ROLE_CONTENT_ADMIN
+
+# `LectureContent.status` values. A Topic is "published" to students when it
+# has a `LectureContent` row in the `published` state; anything else is a draft
+# and is invisible to students (visible to a `ContentAdmin`).
+CONTENT_DRAFT = "draft"
+CONTENT_PUBLISHED = "published"
 
 
 class User(Base):
@@ -118,6 +144,142 @@ class LoginAttempt(Base):
     email: Mapped[str] = mapped_column(String, index=True)
     ip: Mapped[str] = mapped_column(String, index=True)
     succeeded: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now(), index=True
+    )
+
+
+# -- content tree ----------------------------------------------------------
+#
+# YearLevel → Subject → Unit → Topic, every level ordered. Phase 1 seeds one
+# YearLevel ("Year 7"), one Subject ("Mathematics"). `order` is an admin-set
+# integer used only for sorting siblings; it is not required to be dense or
+# unique. See `CONTEXT.md` for what each level means.
+
+
+class YearLevel(Base):
+    __tablename__ = "year_levels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String)
+    syllabus_region: Mapped[str] = mapped_column(String)
+
+    subjects: Mapped[list[Subject]] = relationship(
+        back_populates="year_level",
+        cascade="all, delete-orphan",
+        order_by="Subject.order",
+    )
+
+
+class Subject(Base):
+    __tablename__ = "subjects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    year_level_id: Mapped[int] = mapped_column(
+        ForeignKey("year_levels.id"), index=True
+    )
+    title: Mapped[str] = mapped_column(String)
+    order: Mapped[int] = mapped_column(Integer)
+
+    year_level: Mapped[YearLevel] = relationship(back_populates="subjects")
+    units: Mapped[list[Unit]] = relationship(
+        back_populates="subject",
+        cascade="all, delete-orphan",
+        order_by="Unit.order",
+    )
+
+
+class Unit(Base):
+    __tablename__ = "units"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    subject_id: Mapped[int] = mapped_column(
+        ForeignKey("subjects.id"), index=True
+    )
+    title: Mapped[str] = mapped_column(String)
+    order: Mapped[int] = mapped_column(Integer)
+
+    subject: Mapped[Subject] = relationship(back_populates="units")
+    topics: Mapped[list[Topic]] = relationship(
+        back_populates="unit",
+        cascade="all, delete-orphan",
+        order_by="Topic.order",
+    )
+
+
+# Association table for the directed Topic → prerequisite Topic edges. A plain
+# Core table (not an ORM entity) — it carries no columns of its own, and the
+# seed ingest (ticket 05) appends rows through `Topic.prerequisites`.
+topic_prerequisites = Table(
+    "topic_prerequisites",
+    Base.metadata,
+    Column(
+        "topic_id",
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "prerequisite_topic_id",
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class Topic(Base):
+    __tablename__ = "topics"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    unit_id: Mapped[int] = mapped_column(ForeignKey("units.id"), index=True)
+    title: Mapped[str] = mapped_column(String)
+    # Stable natural key: URLs reference a Topic by slug, and the seed ingest
+    # upserts by it.
+    slug: Mapped[str] = mapped_column(String, unique=True, index=True)
+    order: Mapped[int] = mapped_column(Integer)
+
+    unit: Mapped[Unit] = relationship(back_populates="topics")
+    # One row per Topic (or none while it is being authored).
+    lecture_content: Mapped[LectureContent | None] = relationship(
+        back_populates="topic",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    prerequisites: Mapped[list[Topic]] = relationship(
+        secondary=topic_prerequisites,
+        primaryjoin=lambda: Topic.id == topic_prerequisites.c.topic_id,
+        secondaryjoin=(
+            lambda: Topic.id == topic_prerequisites.c.prerequisite_topic_id
+        ),
+        order_by="Topic.order",
+    )
+
+
+class LectureContent(Base):
+    __tablename__ = "lecture_content"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic_id: Mapped[int] = mapped_column(
+        ForeignKey("topics.id"), unique=True, index=True
+    )
+    body: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String, default=CONTENT_DRAFT)
+    # Bumped by the seed ingest when content is re-published; no edit history.
+    version: Mapped[int] = mapped_column(Integer, default=1)
+
+    topic: Mapped[Topic] = relationship(back_populates="lecture_content")
+
+
+class TopicView(Base):
+    """One row each time a student opens a Topic's lecture content. Write-only
+    in Phase 1 — the student dashboard (ticket 07) reads it back as an activity
+    signal.
+    """
+
+    __tablename__ = "topic_views"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
     )

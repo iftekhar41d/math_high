@@ -98,3 +98,18 @@ export const getProfile = () => request('/profile', { auth: true })
 
 export const updateProfile = (payload) =>
   request('/profile', { method: 'PATCH', auth: true, body: JSON.stringify(payload) })
+
+// -- content --------------------------------------------------------------
+export const getYearLevels = () => request('/content/year-levels', { auth: true })
+
+export const getSubjects = (yearLevelId) =>
+  request(`/content/year-levels/${yearLevelId}/subjects`, { auth: true })
+
+export const getUnits = (subjectId) =>
+  request(`/content/subjects/${subjectId}/units`, { auth: true })
+
+export const getTopics = (unitId) =>
+  request(`/content/units/${unitId}/topics`, { auth: true })
+
+export const getTopic = (slug) =>
+  request(`/content/topics/${encodeURIComponent(slug)}`, { auth: true })

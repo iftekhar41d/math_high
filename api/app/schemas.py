@@ -76,3 +76,63 @@ class ProfileUpdateRequest(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     avatar_url: str | None = Field(default=None, max_length=500)
     year_level: YearLevelField | None = None
+
+
+# -- content tree ------------------------------------------------------------
+
+
+class YearLevelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    syllabus_region: str
+
+
+class SubjectOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    order: int
+
+
+class UnitOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    order: int
+
+
+class TopicRef(BaseModel):
+    """A Topic as it appears in a list or as another Topic's prerequisite —
+    enough to render a link, without the lecture body."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    slug: str
+    order: int
+
+
+class LectureContentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    body: str
+    status: str
+    version: int
+
+
+class TopicDetail(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    slug: str
+    order: int
+    unit_id: int
+    # Absent only for a draft Topic with no content yet (ContentAdmin preview).
+    lecture_content: LectureContentOut | None
+    prerequisites: list[TopicRef]

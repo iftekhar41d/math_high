@@ -44,6 +44,39 @@ const routes = [
     component: () => import('../views/ProfileView.vue'),
     meta: { requiresAuth: true },
   },
+  // Course browsing: Year Level → Subject → Unit → Topic. One component drives
+  // every list level (it keys off the route name); the lecture reader is its
+  // own view.
+  {
+    path: '/learn',
+    name: 'learn',
+    component: () => import('../views/BrowseView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/learn/years/:yearLevelId',
+    name: 'learn-year',
+    component: () => import('../views/BrowseView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/learn/subjects/:subjectId',
+    name: 'learn-subject',
+    component: () => import('../views/BrowseView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/learn/units/:unitId',
+    name: 'learn-unit',
+    component: () => import('../views/BrowseView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/learn/topics/:slug',
+    name: 'learn-topic',
+    component: () => import('../views/LectureView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
