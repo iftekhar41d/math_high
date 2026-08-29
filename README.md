@@ -109,7 +109,7 @@ sudo certbot --nginx -d <your-domain>
 
 ### 3. GitHub Actions CI/CD
 
-`.github/workflows/deploy.yml` SSHes into the VPS on every push to `main` and runs: `git reset --hard origin/main`, reinstalls Python/Node dependencies, runs `alembic upgrade head`, rebuilds the frontend, then restarts the API service and reloads nginx.
+`.github/workflows/deploy.yml` SSHes into the VPS on every push to `main` and runs: `git reset --hard origin/main`, reinstalls Python/Node dependencies, runs `alembic upgrade head`, loads course content with `python -m app.ingest` (idempotent), rebuilds the frontend, then restarts the API service and reloads nginx.
 
 Add these **repository secrets** (Settings → Secrets and variables → Actions):
 

@@ -379,8 +379,10 @@ curl -s https://<domain>/api/health          # end-to-end through nginx
 ```
 
 Reset the dev/prod database (destroys all data): stop the service, delete
-`api/data/app.db`, run `.venv/bin/alembic upgrade head` from `api/`, start the
-service — the schema is rebuilt empty from the migrations.
+`api/data/app.db`, run `.venv/bin/alembic upgrade head` then
+`.venv/bin/python -m app.ingest` from `api/`, start the service — the schema is
+rebuilt empty from the migrations and the course content reloaded from
+`api/content/`.
 
 ## Migrating SQLite → Postgres
 
