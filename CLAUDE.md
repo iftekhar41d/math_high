@@ -147,13 +147,31 @@ the question (null = standalone attempt); `POST
 /practice/questions/{id}/show-solution` sets `solution_viewed` on the latest
 attempt, or writes a marker row (`attempt_no = 0`, linked the same way) if
 there's no submission yet. `PracticeSession` also carries
-`time_limit_seconds` / `submitted_at` / `score`, unused by `topic` mode —
-Phase 2b's `mixed` and `timed` modes build on the same table.
+`time_limit_seconds` / `submitted_at` / `score`, unused by `topic` mode.
 Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 `submit` only returns `worked_solution` once `attempt_no` reaches the
 `practice.solution_reveal_after_attempts` `Setting` (`app/practice/settings.py`,
 default 1 — from the first submission on); the explicit `show-solution` request
 is never gated by it.
+
+**Timed quiz mode** (`mode = timed`, `scope_type = unit`) builds on the same
+tables plus a third pure module, `timed.py` (countdown / late-flag / score
+arithmetic — no DB or clock). `POST /practice/timed-sessions` (`{unit_id}`)
+freezes every question the caller may practise in the Unit (topic order, then
+seed order), sets `time_limit_seconds` to the sum of the questions'
+`estimated_time_seconds` (a null filled with the `practice.default_question_seconds`
+`Setting`, default 90), and stamps `started_at` from the `Clock`. Expiry is
+**server-authoritative**: `remaining_seconds` and the late flag are derived from
+`started_at` + the `Clock`, never the client. While the session is open, a
+`submit` is graded and persisted as normal but the response withholds
+`is_correct` / `worked_solution` (returned `null`); an answer past the limit is
+stored with `QuestionAttempt.after_time_limit = True`, never rejected. `POST
+/practice/sessions/{id}/submit` (timed only, idempotent) scores the frozen set
+(unanswered → incorrect), sets `score` / `submitted_at`, and returns the review
+— per-question correctness + worked solutions. `GET /practice/sessions/{id}`
+(timed only, caller's own) returns the open quiz (public questions +
+`remaining_seconds` + answers so far) or, once submitted, the review. Each start
+is a new `PracticeSession`; retakes are unlimited.
 
 ### CAS equivalence (`app/cas/`)
 A pure module in the mould of `grading.py` — no DB, no clock, no network, no

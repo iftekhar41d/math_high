@@ -76,6 +76,14 @@ watch(() => route.fullPath, load, { immediate: true })
 
     <h1>{{ level.heading }}</h1>
 
+    <RouterLink
+      v-if="route.name === 'learn-unit'"
+      class="timed-cta"
+      :to="{ name: 'learn-timed-quiz', params: { unitId: route.params.unitId } }"
+    >
+      Start a timed quiz for this unit →
+    </RouterLink>
+
     <p v-if="loading">Loading…</p>
     <p v-else-if="error" class="form-error">{{ error }}</p>
     <p v-else-if="items.length === 0">{{ level.empty }}</p>
@@ -119,6 +127,18 @@ h1 {
 }
 .tree-list a.router-link-active {
   text-decoration: underline;
+}
+.timed-cta {
+  display: inline-block;
+  margin: 0.25rem 0 1rem;
+  padding: 0.6rem 0.9rem;
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  background: var(--color-primary);
+  color: var(--color-bg);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: none;
 }
 .link-button {
   background: none;

@@ -135,6 +135,28 @@ export const showSolution = (questionId) =>
     auth: true,
   })
 
+// -- timed quiz mode --------------------------------------------------------
+// Start a fresh timed quiz over a Unit (each call is a new, independent run).
+export const startTimedQuiz = (unitId) =>
+  request('/practice/timed-sessions', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ unit_id: Number(unitId) }),
+  })
+
+// Fetch a timed session: the open quiz (questions + server-authoritative
+// countdown + answers so far) or, once submitted, its review.
+export const getPracticeSession = (sessionId) =>
+  request(`/practice/sessions/${sessionId}`, { auth: true })
+
+// Submit the whole set for grading (explicit button or the countdown hitting
+// zero). Idempotent — returns the same review if already submitted.
+export const submitPracticeSession = (sessionId) =>
+  request(`/practice/sessions/${sessionId}/submit`, {
+    method: 'POST',
+    auth: true,
+  })
+
 // -- dashboard --------------------------------------------------------------
 export const getDashboard = () => request('/dashboard', { auth: true })
 

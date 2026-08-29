@@ -11,6 +11,8 @@ can only practise `published` Topics; a `ContentAdmin` may also practise drafts
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -20,27 +22,45 @@ from app.clock import Clock, get_clock
 from app.content_access import topic_is_published
 from app.database import get_db
 from app.models import (
+    PRACTICE_MODE_TIMED,
     PRACTICE_MODE_TOPIC,
     PRACTICE_SCOPE_TOPIC,
+    PRACTICE_SCOPE_UNIT,
     QUESTION_MULTI_PART,
     PracticeSession,
     PracticeSessionQuestion,
     Question,
     QuestionAttempt,
     Topic,
+    Unit,
     User,
     is_content_admin,
 )
 from app.practice.grading import grade_parts, is_correct
 from app.practice.payload import public_question
-from app.practice.settings import solution_reveal_after_attempts
+from app.practice.settings import (
+    default_question_seconds,
+    solution_reveal_after_attempts,
+)
+from app.practice.timed import (
+    is_after_limit,
+    remaining_seconds,
+    score,
+    total_time_limit,
+)
 from app.schemas import (
     PracticeSessionOut,
+    SessionReviewOut,
+    SessionReviewQuestionOut,
     SolutionResponse,
     StartPracticeRequest,
+    StartTimedQuizRequest,
     SubmitAnswerRequest,
     SubmitAnswerResponse,
+    TimedAnswerOut,
+    TimedSessionOut,
     TopicRef,
+    UnitRef,
 )
 
 router = APIRouter(prefix="/practice", tags=["practice"])
@@ -96,6 +116,25 @@ def _active_session_id(
         )
         .order_by(PracticeSession.id.desc())
     )
+
+
+def _open_timed_session(
+    db: Session, active_session_id: int | None
+) -> PracticeSession | None:
+    """The `PracticeSession` behind `active_session_id` when it's a `timed` run
+    that hasn't been submitted yet — the state in which correctness and worked
+    solutions are withheld. `None` for a topic run, a submitted run, or no run.
+    """
+    if active_session_id is None:
+        return None
+    session = db.get(PracticeSession, active_session_id)
+    if (
+        session is not None
+        and session.mode == PRACTICE_MODE_TIMED
+        and session.submitted_at is None
+    ):
+        return session
+    return None
 
 
 @router.post("/sessions", response_model=PracticeSessionOut)
@@ -170,20 +209,41 @@ def submit_answer(
     )
     attempt_no = graded_so_far + 1
 
+    # A submit made inside an open `timed` quiz is graded and persisted as
+    # usual, but the response withholds correctness and the worked solution
+    # until the whole set is submitted for review. An answer that arrives after
+    # the quiz's limit is flagged, never rejected.
+    active_id = _active_session_id(db, user, question.id)
+    timed_open = _open_timed_session(db, active_id)
+    after_limit = timed_open is not None and is_after_limit(
+        time_limit_seconds=timed_open.time_limit_seconds or 0,
+        started_at=timed_open.started_at,
+        now=clock.now(),
+    )
+
     db.add(
         QuestionAttempt(
             user_id=user.id,
             question_id=question.id,
-            practice_session_id=_active_session_id(db, user, question.id),
+            practice_session_id=active_id,
             submitted_answer=body.answer,
             is_correct=correct,
             part_results=part_results,
             time_taken=body.time_taken,
             attempt_no=attempt_no,
+            after_time_limit=after_limit if timed_open is not None else None,
             created_at=clock.now(),
         )
     )
     db.commit()
+
+    if timed_open is not None:
+        return SubmitAnswerResponse(
+            is_correct=None,
+            attempt_no=attempt_no,
+            worked_solution=None,
+            after_time_limit=after_limit,
+        )
 
     reveal_after = solution_reveal_after_attempts(db)
     return SubmitAnswerResponse(
@@ -211,6 +271,17 @@ def show_solution(
     # `solution_reveal_after_attempts` Setting.
     question = _practisable_question_or_404(db, question_id, user)
 
+    # ...except inside an open timed quiz, where no solution is available until
+    # the whole set is submitted for review.
+    if (
+        _open_timed_session(db, _active_session_id(db, user, question.id))
+        is not None
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Worked solutions are hidden until the timed quiz is submitted.",
+        )
+
     latest = db.scalar(
         select(QuestionAttempt)
         .where(
@@ -236,3 +307,237 @@ def show_solution(
     db.commit()
 
     return SolutionResponse(worked_solution=question.worked_solution)
+
+
+# -- timed quiz mode --------------------------------------------------------
+#
+# A `timed` `PracticeSession` freezes every visible question in a Unit, sets a
+# `time_limit_seconds` from the questions' estimated times, and stamps
+# `started_at` from the `Clock`. Expiry is server-authoritative: the countdown
+# and the late-answer flag are both derived from `started_at` + the `Clock`,
+# never trusted from the client. Feedback is withheld (see `submit_answer`)
+# until the whole set is submitted; then `score` / `submitted_at` are set and
+# the review carries per-question correctness and worked solutions. Each start
+# is a fresh session — retakes are unlimited.
+
+
+def _session_or_404(
+    db: Session, user: User, session_id: int
+) -> PracticeSession:
+    session = db.get(PracticeSession, session_id)
+    if session is None or session.user_id != user.id:
+        raise _not_found("practice session")
+    return session
+
+
+def _timed_session_or_404(
+    db: Session, user: User, session_id: int
+) -> PracticeSession:
+    session = _session_or_404(db, user, session_id)
+    if session.mode != PRACTICE_MODE_TIMED:
+        raise _not_found("timed quiz")
+    return session
+
+
+def _unit_questions(db: Session, unit: Unit, user: User) -> list[Question]:
+    """Every question in the Unit the caller may practise, in topic order then
+    question (seed) order."""
+    rows = db.scalars(
+        select(Question)
+        .join(Topic, Topic.id == Question.topic_id)
+        .where(Topic.unit_id == unit.id)
+        .order_by(Topic.order, Question.id)
+    )
+    return [q for q in rows if _visible_to(user, q.topic)]
+
+
+def _frozen_questions(
+    db: Session, session: PracticeSession
+) -> list[Question]:
+    """The session's frozen question set, in `position` order."""
+    return list(
+        db.scalars(
+            select(Question)
+            .join(
+                PracticeSessionQuestion,
+                PracticeSessionQuestion.question_id == Question.id,
+            )
+            .where(PracticeSessionQuestion.session_id == session.id)
+            .order_by(PracticeSessionQuestion.position)
+        )
+    )
+
+
+def _latest_attempts(
+    db: Session, session: PracticeSession
+) -> dict[int, QuestionAttempt]:
+    """The most recent graded attempt (`attempt_no > 0`) per question in this
+    session, keyed by question id."""
+    latest: dict[int, QuestionAttempt] = {}
+    for attempt in db.scalars(
+        select(QuestionAttempt)
+        .where(
+            QuestionAttempt.practice_session_id == session.id,
+            QuestionAttempt.attempt_no > 0,
+        )
+        .order_by(QuestionAttempt.id)
+    ):
+        latest[attempt.question_id] = attempt
+    return latest
+
+
+def _build_review(
+    db: Session, session: PracticeSession
+) -> SessionReviewOut:
+    frozen = _frozen_questions(db, session)
+    latest = _latest_attempts(db, session)
+    return SessionReviewOut(
+        session_id=session.id,
+        mode=session.mode,
+        score=session.score if session.score is not None else 0.0,
+        question_count=session.question_count,
+        submitted_at=session.submitted_at,
+        questions=[
+            SessionReviewQuestionOut(
+                question=public_question(q),
+                submitted_answer=(
+                    latest[q.id].submitted_answer if q.id in latest else None
+                ),
+                is_correct=(
+                    latest[q.id].is_correct if q.id in latest else None
+                ),
+                after_time_limit=bool(
+                    q.id in latest and latest[q.id].after_time_limit
+                ),
+                worked_solution=q.worked_solution,
+            )
+            for q in frozen
+        ],
+    )
+
+
+def _timed_session_out(
+    db: Session,
+    session: PracticeSession,
+    now: datetime,
+) -> TimedSessionOut:
+    unit = db.get(Unit, session.scope_id)
+    limit = session.time_limit_seconds or 0
+    submitted = session.submitted_at is not None
+
+    questions: list = []
+    answers: list[TimedAnswerOut] = []
+    review: SessionReviewOut | None = None
+    if submitted:
+        review = _build_review(db, session)
+    else:
+        frozen = _frozen_questions(db, session)
+        latest = _latest_attempts(db, session)
+        questions = [public_question(q) for q in frozen]
+        answers = [
+            TimedAnswerOut(
+                question_id=qid,
+                submitted_answer=attempt.submitted_answer,
+                after_time_limit=bool(attempt.after_time_limit),
+            )
+            for qid, attempt in latest.items()
+        ]
+
+    return TimedSessionOut(
+        session_id=session.id,
+        mode=session.mode,
+        scope_type=session.scope_type,
+        unit=UnitRef.model_validate(unit),
+        time_limit_seconds=limit,
+        started_at=session.started_at,
+        server_now=now,
+        remaining_seconds=remaining_seconds(
+            time_limit_seconds=limit,
+            started_at=session.started_at,
+            now=now,
+        ),
+        submitted_at=session.submitted_at,
+        questions=questions,
+        answers=answers,
+        review=review,
+    )
+
+
+@router.post("/timed-sessions", response_model=TimedSessionOut)
+def start_timed_session(
+    body: StartTimedQuizRequest,
+    db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
+    user: User = Depends(require_verified_user),
+) -> TimedSessionOut:
+    unit = db.get(Unit, body.unit_id)
+    if unit is None:
+        raise _not_found("unit")
+
+    questions = _unit_questions(db, unit, user)
+    if not questions:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This unit has no practice questions yet.",
+        )
+
+    limit = total_time_limit(
+        [q.estimated_time_seconds for q in questions],
+        default_question_seconds(db),
+    )
+    session = PracticeSession(
+        user_id=user.id,
+        mode=PRACTICE_MODE_TIMED,
+        scope_type=PRACTICE_SCOPE_UNIT,
+        scope_id=unit.id,
+        question_count=len(questions),
+        time_limit_seconds=limit,
+        started_at=clock.now(),
+        questions=[
+            PracticeSessionQuestion(question_id=q.id, position=i)
+            for i, q in enumerate(questions)
+        ],
+    )
+    db.add(session)
+    db.commit()
+    db.refresh(session)
+    return _timed_session_out(db, session, clock.now())
+
+
+@router.get("/sessions/{session_id}", response_model=TimedSessionOut)
+def get_timed_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
+    user: User = Depends(require_verified_user),
+) -> TimedSessionOut:
+    session = _timed_session_or_404(db, user, session_id)
+    return _timed_session_out(db, session, clock.now())
+
+
+@router.post(
+    "/sessions/{session_id}/submit", response_model=SessionReviewOut
+)
+def submit_timed_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    clock: Clock = Depends(get_clock),
+    user: User = Depends(require_verified_user),
+) -> SessionReviewOut:
+    session = _timed_session_or_404(db, user, session_id)
+
+    # Idempotent: a manual submit racing the SPA's auto-submit-at-zero just
+    # gets the already-computed review back, unchanged.
+    if session.submitted_at is None:
+        frozen = _frozen_questions(db, session)
+        latest = _latest_attempts(db, session)
+        # An unanswered question scores incorrect.
+        correct_vector = [
+            bool(latest[q.id].is_correct) if q.id in latest else False
+            for q in frozen
+        ]
+        session.score = score(correct_vector)
+        session.submitted_at = clock.now()
+        db.commit()
+
+    return _build_review(db, session)

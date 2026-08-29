@@ -188,16 +188,93 @@ class SubmitAnswerRequest(BaseModel):
 
 
 class SubmitAnswerResponse(BaseModel):
-    is_correct: bool
+    # `null` while a `timed` quiz is still open — correctness is withheld until
+    # the whole set is submitted for review.
+    is_correct: bool | None
     attempt_no: int
     # The worked solution once `attempt_no` reaches the
     # `solution_reveal_after_attempts` Setting (default 1 — i.e. from the first
-    # submission on, regardless of correctness); `null` before then.
+    # submission on, regardless of correctness); `null` before then, and always
+    # `null` while a `timed` quiz is open.
     worked_solution: str | None
+    # `timed` mode: `True` when this answer landed after the quiz's time limit
+    # (accepted and stored anyway). `False` otherwise.
+    after_time_limit: bool = False
 
 
 class SolutionResponse(BaseModel):
     worked_solution: str
+
+
+# -- timed quiz mode -------------------------------------------------------
+
+
+class StartTimedQuizRequest(BaseModel):
+    unit_id: int = Field(ge=1)
+
+
+class UnitRef(BaseModel):
+    """A Unit as the timed-quiz screen needs it — enough to title the quiz and
+    link back."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    slug: str | None
+    order: int
+
+
+class TimedAnswerOut(BaseModel):
+    """The student's latest stored answer for one question in an open quiz, so
+    a page reload restores what they'd entered."""
+
+    question_id: int
+    submitted_answer: Any | None
+    after_time_limit: bool
+
+
+class SessionReviewQuestionOut(BaseModel):
+    """One question in a submitted quiz's review: the public question plus the
+    student's answer, its correctness, and the worked solution."""
+
+    question: PracticeQuestionOut
+    submitted_answer: Any | None
+    # `null` when the student never answered it (scored incorrect).
+    is_correct: bool | None
+    after_time_limit: bool
+    worked_solution: str
+
+
+class SessionReviewOut(BaseModel):
+    session_id: int
+    mode: str
+    # Proportion correct over the frozen set, 0.0–1.0 (unanswered = incorrect).
+    score: float
+    question_count: int
+    submitted_at: datetime
+    questions: list[SessionReviewQuestionOut]
+
+
+class TimedSessionOut(BaseModel):
+    """A timed quiz, open or submitted. While open: the frozen public questions,
+    the server-authoritative countdown, and any answers so far. Once submitted:
+    `review` is populated and `questions` / `answers` are empty."""
+
+    session_id: int
+    mode: str
+    scope_type: str
+    unit: UnitRef
+    time_limit_seconds: int
+    started_at: datetime
+    # The injected `Clock`'s current instant, so the SPA can correct for drift.
+    server_now: datetime
+    # Whole seconds left, never negative; 0 once the limit has elapsed.
+    remaining_seconds: int
+    submitted_at: datetime | None
+    questions: list[PracticeQuestionOut]
+    answers: list[TimedAnswerOut]
+    review: SessionReviewOut | None
 
 
 # -- MentisQ (the AI tutor) ------------------------------------------------

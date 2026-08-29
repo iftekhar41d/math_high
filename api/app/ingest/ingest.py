@@ -182,6 +182,7 @@ def _upsert_question(
     row.body = spec.body
     row.answer_schema = spec.answer_schema
     row.worked_solution = spec.worked_solution
+    row.estimated_time_seconds = spec.estimated_time_seconds
     row.skill_tags = [
         _get_tag(db, name, tag_cache, summary) for name in spec.skill_tags
     ]

@@ -90,6 +90,12 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/learn/units/:unitId/timed-quiz',
+    name: 'learn-timed-quiz',
+    component: () => import('../views/TimedQuizView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/mentisq',
     name: 'mentisq',
     component: () => import('../views/MentisQView.vue'),

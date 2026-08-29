@@ -13,7 +13,8 @@ Ticket 04 adds the practice tables: `Question` (with its `answer_schema` JSON),
 Ticket 06 adds the MentisQ tables (`MentisQSession`, `MentisQMessage`) and the
 `Setting` key/value store for `SuperAdmin` configuration. Phase 2 ticket 04 adds
 the persisted practice run: `PracticeSession` + `PracticeSessionQuestion` and the
-`QuestionAttempt.practice_session_id` FK.
+`QuestionAttempt.practice_session_id` FK. Phase 2 ticket 06 (timed quiz mode)
+adds `Question.estimated_time_seconds` and `QuestionAttempt.after_time_limit`.
 """
 
 from __future__ import annotations
@@ -388,6 +389,12 @@ class Question(Base):
     # `multi_part`, every part's own answer data — never leave the server.
     answer_schema: Mapped[dict[str, Any]] = mapped_column(JSON)
     worked_solution: Mapped[str] = mapped_column(Text)
+    # Author estimate of how long this question takes, in seconds. Summed across
+    # a `timed` quiz's frozen set to set its `time_limit_seconds`; a null here
+    # is filled with the `practice.default_question_seconds` Setting (≈ 90).
+    estimated_time_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
 
     topic: Mapped[Topic] = relationship()
     skill_tags: Mapped[list[SkillTag]] = relationship(
@@ -501,6 +508,12 @@ class QuestionAttempt(Base):
     time_taken: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 1 for the first graded submission, 2 for the next…; 0 for a marker row.
     attempt_no: Mapped[int] = mapped_column(Integer, default=0)
+    # `timed` mode only: set `True` when this answer landed after the quiz's
+    # `time_limit_seconds` had elapsed (accepted and stored, not rejected).
+    # Null for every attempt made outside a timed quiz.
+    after_time_limit: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True
+    )
     hints_used: Mapped[int] = mapped_column(Integer, default=0)
     mentisq_used: Mapped[bool] = mapped_column(Boolean, default=False)
     solution_viewed: Mapped[bool] = mapped_column(Boolean, default=False)

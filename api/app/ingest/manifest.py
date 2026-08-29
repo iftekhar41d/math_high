@@ -117,6 +117,10 @@ class QuestionSpec(_Node):
     answer_schema: dict[str, Any]
     worked_solution: str = Field(min_length=1)
     skill_tags: list[str] = Field(default_factory=list)
+    # Optional author estimate (seconds) of how long this question takes,
+    # summed across a `timed` quiz's question set. Omitted → the
+    # `practice.default_question_seconds` Setting fills the gap.
+    estimated_time_seconds: int | None = Field(default=None, ge=1)
 
     @field_validator("slug")
     @classmethod

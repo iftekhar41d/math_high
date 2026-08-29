@@ -45,6 +45,10 @@ year_levels:
                       correct_option: b
                     worked_solution: 'Ascending means smallest first. Reading a number line left to right gives -5, then -1, then 0, then 3.'
                     skill_tags: ['ordering integers']
+                    # Author estimate (seconds); a timed quiz sums these across
+                    # its question set. Omit it and the
+                    # `practice.default_question_seconds` Setting (~90) applies.
+                    estimated_time_seconds: 45
                   - slug: int-nl-greatest
                     type: mcq_single
                     difficulty: easy
@@ -58,6 +62,7 @@ year_levels:
                       correct_option: a
                     worked_solution: 'The greatest integer is the one furthest right on the number line. -2 is closer to zero than -9, -15 or -100, so -2 is greatest.'
                     skill_tags: ['ordering integers']
+                    estimated_time_seconds: 45
                   - slug: int-nl-absolute-value
                     type: numeric
                     difficulty: medium
@@ -65,6 +70,7 @@ year_levels:
                     answer_schema: {value: 8, tolerance: 0}
                     worked_solution: 'The absolute value is the distance from zero, ignoring direction. -8 is 8 units from zero, so $|-8| = 8$.'
                     skill_tags: ['absolute value']
+                    estimated_time_seconds: 60
                   - slug: int-nl-negative-set
                     type: mcq_multi
                     difficulty: easy
@@ -79,6 +85,7 @@ year_levels:
                       correct_options: ['a', 'c', 'e']
                     worked_solution: 'A negative integer is less than zero: -6, -1 and -20. Zero is neither positive nor negative, and 4 is positive.'
                     skill_tags: ['ordering integers']
+                    estimated_time_seconds: 60
 
               - slug: adding-and-subtracting-integers
                 title: "Adding and Subtracting Integers"
