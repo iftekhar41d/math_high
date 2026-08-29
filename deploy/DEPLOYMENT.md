@@ -10,6 +10,7 @@ serves directly, and every push to `main` redeploys via GitHub Actions.
 - [Standing up a new VPS](#standing-up-a-new-vps)
 - [HTTPS / TLS](#https--tls)
 - [Configuring email](#configuring-email)
+- [Seeding course content](#seeding-course-content)
 - [CI/CD](#cicd)
 - [Re-running setup on an existing host](#re-running-setup-on-an-existing-host)
 - [Where things live on the server](#where-things-live-on-the-server)
@@ -134,7 +135,8 @@ What the script does, in order:
 2. Opens ufw for OpenSSH / 80 / 443 (only if ufw is present).
 3. Clones `REPO_URL` to `APP_DIR` (or `git pull` if already there).
 4. Creates `api/.venv`, installs `api/requirements.txt`, runs
-   `alembic upgrade head` to build the database schema.
+   `alembic upgrade head` to build the database schema, then
+   `python -m app.ingest` to load the course content from `api/content/`.
 5. `npm install && npm run build` in `web/` → `web/dist`.
 6. Writes `/etc/math-high-api.env` (mode 600) if absent, with a freshly
    generated `JWT_SECRET`, `PUBLIC_BASE_URL=https://$DOMAIN`,
@@ -291,6 +293,31 @@ journalctl -u math-high-api --since -1min --no-pager
 pipeline — record the SMTP values (and `JWT_SECRET`) somewhere safe; a VPS
 rebuild needs them re-entered.
 
+## Seeding course content
+
+The Year Level → Subject → Unit → Topic tree, per-Topic lecture Markdown, and
+questions live as repo files under `api/content/` (`manifest.yaml` +
+`lectures/*.md`). A content admin edits those files, commits, and the ingest
+loads them:
+
+```bash
+cd api
+.venv/bin/python -m app.ingest              # default: content/manifest.yaml
+.venv/bin/python -m app.ingest path/to/other-manifest.yaml
+```
+
+It is **idempotent** — every entity is upserted by its `slug`, so re-running
+over unchanged content is a no-op and no database reset is ever needed. A
+malformed manifest (bad prerequisite reference, unknown question type, missing
+field, unreadable lecture file) is rejected with a message and writes nothing.
+Content removed from the manifest is left in the database, not deleted — a Topic
+or Question may already have student attempt/view rows; pruning is a deliberate
+manual step.
+
+`setup-vps.sh` and the deploy workflow both run `python -m app.ingest` after
+`alembic upgrade head`, so a push that changes `api/content/` publishes the new
+content on deploy.
+
 ## CI/CD
 
 `.github/workflows/deploy.yml` runs on every push to `main`. It SSHes in
@@ -301,6 +328,7 @@ git fetch origin main
 git reset --hard origin/main          # server-side local changes are discarded
 cd api && .venv/bin/pip install -r requirements.txt
 .venv/bin/alembic upgrade head        # apply migrations before the restart
+.venv/bin/python -m app.ingest        # load course content from api/content/
 cd ../web && npm install && npm run build
 sudo systemctl restart math-high-api
 sudo systemctl reload nginx
@@ -309,7 +337,9 @@ sudo systemctl reload nginx
 It never touches nginx `server_name`, the systemd unit, or TLS — those are set
 once by `setup-vps.sh` and by certbot. Schema changes are Alembic migrations
 (`api/migrations/`): `alembic upgrade head` runs on every deploy, before the
-service restart, so the schema is in step with the code being started.
+service restart, so the schema is in step with the code being started. The
+content ingest runs straight after, so lecture and question edits ship the same
+way.
 
 ## Re-running setup on an existing host
 
@@ -327,6 +357,7 @@ pass `FORCE_NGINX=1`.
 | `APP_DIR/api/.venv` | API virtualenv |
 | `APP_DIR/api/data/app.db` | SQLite database (survives deploys; **not** in git) |
 | `APP_DIR/api/data/media/` | lecture images; nginx serves them at `/media/` (created by `setup-vps.sh`, survives deploys, **not** in git) |
+| `APP_DIR/api/content/` | course manifest + lecture Markdown, **in git**; loaded by `python -m app.ingest` on deploy |
 | `APP_DIR/web/dist` | built frontend nginx serves |
 | `/etc/systemd/system/math-high-api.service` | rendered unit (real user/paths) |
 | `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, later `OPENROUTER_API_KEY` / `SMTP_*`); mode 600, **not** in git |

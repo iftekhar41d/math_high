@@ -1,0 +1,618 @@
+# MentisQ pilot content — Year 7 Mathematics (NSW Stage 4).
+#
+# Loaded with:  cd api && python -m app.ingest
+# Safe to re-run: every entity is upserted by its `slug`.
+#
+# This is a representative subset (4 Units, 15 Topics, 45 Questions) — enough for
+# a student to do real study. Bulk question authoring continues on top of it, by
+# adding entries here and re-running the ingest.
+#
+# Format reference and validation rules: api/app/ingest/manifest.py
+
+year_levels:
+  - slug: year-7
+    name: "Year 7"
+    syllabus_region: AU-NSW
+    subjects:
+      - slug: mathematics
+        title: Mathematics
+        order: 1
+        units:
+
+          # ---------------------------------------------------------------
+          - slug: computation-with-integers
+            title: "Computation with Integers"
+            order: 1
+            topics:
+
+              - slug: integers-and-the-number-line
+                title: "Integers and the Number Line"
+                order: 1
+                lecture_file: lectures/integers-and-the-number-line.md
+                prerequisites: []
+                questions:
+                  - slug: int-nl-ascending
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Which list of integers is in ascending order?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '3, -1, -5, 0'}
+                        - {id: b, text: '-5, -1, 0, 3'}
+                        - {id: c, text: '0, -1, 3, -5'}
+                        - {id: d, text: '-1, -5, 0, 3'}
+                      correct_option: b
+                    worked_solution: 'Ascending means smallest first. Reading a number line left to right gives -5, then -1, then 0, then 3.'
+                    skill_tags: ['ordering integers']
+                  - slug: int-nl-greatest
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Which integer is the greatest?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '-2'}
+                        - {id: b, text: '-15'}
+                        - {id: c, text: '-9'}
+                        - {id: d, text: '-100'}
+                      correct_option: a
+                    worked_solution: 'The greatest integer is the one furthest right on the number line. -2 is closer to zero than -9, -15 or -100, so -2 is greatest.'
+                    skill_tags: ['ordering integers']
+                  - slug: int-nl-absolute-value
+                    type: numeric
+                    difficulty: medium
+                    body: 'Evaluate $|-8|$.'
+                    answer_schema: {value: 8, tolerance: 0}
+                    worked_solution: 'The absolute value is the distance from zero, ignoring direction. -8 is 8 units from zero, so $|-8| = 8$.'
+                    skill_tags: ['absolute value']
+
+              - slug: adding-and-subtracting-integers
+                title: "Adding and Subtracting Integers"
+                order: 2
+                lecture_file: lectures/adding-and-subtracting-integers.md
+                prerequisites: ['integers-and-the-number-line']
+                questions:
+                  - slug: int-add-negative
+                    type: numeric
+                    difficulty: easy
+                    body: 'Evaluate $-7 + 3$.'
+                    answer_schema: {value: -4, tolerance: 0}
+                    worked_solution: 'Start at -7 and move 3 to the right: -6, -5, -4. So $-7 + 3 = -4$.'
+                    skill_tags: ['integer addition']
+                  - slug: int-add-two-negatives
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'What is $-6 + (-5)$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '-1'}
+                        - {id: b, text: '1'}
+                        - {id: c, text: '-11'}
+                        - {id: d, text: '11'}
+                      correct_option: c
+                    worked_solution: 'Same sign: add the digits and keep the sign. $6 + 5 = 11$, both negative, so the answer is -11.'
+                    skill_tags: ['integer addition']
+                  - slug: int-subtract-negative
+                    type: numeric
+                    difficulty: medium
+                    body: 'Evaluate $5 - (-2)$.'
+                    answer_schema: {value: 7, tolerance: 0}
+                    worked_solution: 'Subtracting a negative is adding its opposite: $5 - (-2) = 5 + 2 = 7$.'
+                    skill_tags: ['integer subtraction']
+
+              - slug: multiplying-and-dividing-integers
+                title: "Multiplying and Dividing Integers"
+                order: 3
+                lecture_file: lectures/multiplying-and-dividing-integers.md
+                prerequisites: ['adding-and-subtracting-integers']
+                questions:
+                  - slug: int-multiply-different-signs
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'What is $(-4) \times 3$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '12'}
+                        - {id: b, text: '-12'}
+                        - {id: c, text: '-7'}
+                        - {id: d, text: '-1'}
+                      correct_option: b
+                    worked_solution: 'Digits: $4 \times 3 = 12$. Different signs give a negative product, so $(-4) \times 3 = -12$.'
+                    skill_tags: ['integer multiplication']
+                  - slug: int-multiply-two-negatives
+                    type: numeric
+                    difficulty: easy
+                    body: 'Evaluate $(-6) \times (-7)$.'
+                    answer_schema: {value: 42, tolerance: 0}
+                    worked_solution: 'Digits: $6 \times 7 = 42$. Same signs give a positive product, so the answer is 42.'
+                    skill_tags: ['integer multiplication']
+                  - slug: int-divide-negative
+                    type: numeric
+                    difficulty: medium
+                    body: 'Evaluate $(-20) \div 5$.'
+                    answer_schema: {value: -4, tolerance: 0}
+                    worked_solution: 'Digits: $20 \div 5 = 4$. Different signs give a negative result, so $(-20) \div 5 = -4$.'
+                    skill_tags: ['integer division']
+
+              - slug: order-of-operations
+                title: "Order of Operations"
+                order: 4
+                lecture_file: lectures/order-of-operations.md
+                prerequisites: ['multiplying-and-dividing-integers']
+                questions:
+                  - slug: ooo-multiply-before-add
+                    type: numeric
+                    difficulty: easy
+                    body: 'Evaluate $6 + 2 \times 4$.'
+                    answer_schema: {value: 14, tolerance: 0}
+                    worked_solution: 'Multiplication before addition: $2 \times 4 = 8$, then $6 + 8 = 14$.'
+                    skill_tags: ['order of operations']
+                  - slug: ooo-brackets-and-index
+                    type: numeric
+                    difficulty: medium
+                    body: 'Evaluate $(5 - 1)^2 \div 4$.'
+                    answer_schema: {value: 4, tolerance: 0}
+                    worked_solution: 'Brackets first: $5 - 1 = 4$. Index: $4^2 = 16$. Then $16 \div 4 = 4$.'
+                    skill_tags: ['order of operations']
+                  - slug: ooo-left-to-right
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Evaluate $20 - 8 + 3$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '9'}
+                        - {id: b, text: '15'}
+                        - {id: c, text: '25'}
+                        - {id: d, text: '-15'}
+                      correct_option: b
+                    worked_solution: 'Addition and subtraction are worked left to right: $20 - 8 = 12$, then $12 + 3 = 15$.'
+                    skill_tags: ['order of operations']
+
+          # ---------------------------------------------------------------
+          - slug: fractions-decimals-percentages
+            title: "Fractions, Decimals and Percentages"
+            order: 2
+            topics:
+
+              - slug: equivalent-fractions
+                title: "Equivalent Fractions"
+                order: 1
+                lecture_file: lectures/equivalent-fractions.md
+                prerequisites: ['integers-and-the-number-line']
+                questions:
+                  - slug: ef-identify-equivalent
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Which fraction is equivalent to $\dfrac{2}{3}$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{4}{9}$'}
+                        - {id: b, text: '$\dfrac{8}{12}$'}
+                        - {id: c, text: '$\dfrac{6}{8}$'}
+                        - {id: d, text: '$\dfrac{2}{6}$'}
+                      correct_option: b
+                    worked_solution: 'Multiply numerator and denominator by 4: $\dfrac{2}{3} = \dfrac{2 \times 4}{3 \times 4} = \dfrac{8}{12}$.'
+                    skill_tags: ['equivalent fractions']
+                  - slug: ef-simplest-form
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Write $\dfrac{18}{24}$ in simplest form.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{3}{4}$'}
+                        - {id: b, text: '$\dfrac{9}{12}$'}
+                        - {id: c, text: '$\dfrac{6}{8}$'}
+                        - {id: d, text: '$\dfrac{2}{3}$'}
+                      correct_option: a
+                    worked_solution: 'The highest common factor of 18 and 24 is 6. Divide both: $\dfrac{18 \div 6}{24 \div 6} = \dfrac{3}{4}$.'
+                    skill_tags: ['simplifying fractions']
+                  - slug: ef-compare
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Which is larger, $\dfrac{3}{4}$ or $\dfrac{5}{6}$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{3}{4}$'}
+                        - {id: b, text: '$\dfrac{5}{6}$'}
+                        - {id: c, text: 'They are equal'}
+                      correct_option: b
+                    worked_solution: 'Common denominator 12: $\dfrac{3}{4} = \dfrac{9}{12}$ and $\dfrac{5}{6} = \dfrac{10}{12}$. Since $10 > 9$, $\dfrac{5}{6}$ is larger.'
+                    skill_tags: ['comparing fractions']
+
+              - slug: adding-and-subtracting-fractions
+                title: "Adding and Subtracting Fractions"
+                order: 2
+                lecture_file: lectures/adding-and-subtracting-fractions.md
+                prerequisites: ['equivalent-fractions']
+                questions:
+                  - slug: asf-same-denominator
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Evaluate $\dfrac{2}{7} + \dfrac{3}{7}$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{5}{14}$'}
+                        - {id: b, text: '$\dfrac{5}{7}$'}
+                        - {id: c, text: '$\dfrac{6}{7}$'}
+                        - {id: d, text: '$\dfrac{5}{49}$'}
+                      correct_option: b
+                    worked_solution: 'Same denominator: add the numerators and keep the denominator. $2 + 3 = 5$, so $\dfrac{5}{7}$.'
+                    skill_tags: ['fraction addition']
+                  - slug: asf-unlike-denominators
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Evaluate $\dfrac{1}{4} + \dfrac{2}{3}$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{3}{7}$'}
+                        - {id: b, text: '$\dfrac{11}{12}$'}
+                        - {id: c, text: '$\dfrac{3}{12}$'}
+                        - {id: d, text: '$\dfrac{2}{12}$'}
+                      correct_option: b
+                    worked_solution: 'Common denominator 12: $\dfrac{1}{4} = \dfrac{3}{12}$ and $\dfrac{2}{3} = \dfrac{8}{12}$. Then $\dfrac{3}{12} + \dfrac{8}{12} = \dfrac{11}{12}$.'
+                    skill_tags: ['fraction addition']
+                  - slug: asf-subtraction
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Evaluate $\dfrac{5}{6} - \dfrac{1}{3}$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{1}{2}$'}
+                        - {id: b, text: '$\dfrac{4}{3}$'}
+                        - {id: c, text: '$\dfrac{2}{3}$'}
+                        - {id: d, text: '$\dfrac{1}{3}$'}
+                      correct_option: a
+                    worked_solution: 'Common denominator 6: $\dfrac{1}{3} = \dfrac{2}{6}$. Then $\dfrac{5}{6} - \dfrac{2}{6} = \dfrac{3}{6} = \dfrac{1}{2}$.'
+                    skill_tags: ['fraction subtraction']
+
+              - slug: decimals-and-place-value
+                title: "Decimals and Place Value"
+                order: 3
+                lecture_file: lectures/decimals-and-place-value.md
+                prerequisites: []
+                questions:
+                  - slug: dpv-compare
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Which number is larger: $0.7$ or $0.68$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$0.7$'}
+                        - {id: b, text: '$0.68$'}
+                        - {id: c, text: 'They are equal'}
+                      correct_option: a
+                    worked_solution: 'Write $0.7$ as $0.70$ and compare tenths: $7 > 6$, so $0.7 > 0.68$.'
+                    skill_tags: ['comparing decimals']
+                  - slug: dpv-round-1dp
+                    type: numeric
+                    difficulty: medium
+                    body: 'Round $3.472$ to one decimal place.'
+                    answer_schema: {value: 3.5, tolerance: 0.001}
+                    worked_solution: 'The digit after the tenths place is 7, which is 5 or more, so round the tenths up: $3.472 \approx 3.5$.'
+                    skill_tags: ['rounding decimals']
+                  - slug: dpv-digit-value
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'In the number $3.47$, what is the value of the digit $7$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '7 tenths'}
+                        - {id: b, text: '7 hundredths'}
+                        - {id: c, text: '7 ones'}
+                        - {id: d, text: '7 thousandths'}
+                      correct_option: b
+                    worked_solution: 'The second column after the decimal point is hundredths, so the 7 represents 7 hundredths.'
+                    skill_tags: ['decimal place value']
+
+              - slug: fractions-decimals-and-percentages
+                title: "Fractions, Decimals and Percentages"
+                order: 4
+                lecture_file: lectures/fractions-decimals-and-percentages.md
+                prerequisites: ['equivalent-fractions', 'decimals-and-place-value']
+                questions:
+                  - slug: fdp-fraction-to-percent
+                    type: numeric
+                    difficulty: easy
+                    body: 'Write $\dfrac{7}{20}$ as a percentage. Enter just the number.'
+                    answer_schema: {value: 35, tolerance: 0}
+                    worked_solution: 'Scale to a denominator of 100: $\dfrac{7}{20} = \dfrac{35}{100} = 35\%$.'
+                    skill_tags: ['percentage conversion']
+                  - slug: fdp-percent-to-decimal
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Write $37\%$ as a decimal.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$3.7$'}
+                        - {id: b, text: '$0.37$'}
+                        - {id: c, text: '$0.037$'}
+                        - {id: d, text: '$37.0$'}
+                      correct_option: b
+                    worked_solution: 'Percent means out of 100, so divide by 100: $37\% = \dfrac{37}{100} = 0.37$.'
+                    skill_tags: ['percentage conversion']
+                  - slug: fdp-percent-of-quantity
+                    type: numeric
+                    difficulty: medium
+                    body: 'Find $15\%$ of $60$.'
+                    answer_schema: {value: 9, tolerance: 0}
+                    worked_solution: '$15\% = 0.15$, and $0.15 \times 60 = 9$.'
+                    skill_tags: ['percentage of a quantity']
+
+          # ---------------------------------------------------------------
+          - slug: algebraic-techniques
+            title: "Introduction to Algebra"
+            order: 3
+            topics:
+
+              - slug: using-pronumerals
+                title: "Using Pronumerals"
+                order: 1
+                lecture_file: lectures/using-pronumerals.md
+                prerequisites: ['order-of-operations']
+                questions:
+                  - slug: up-notation-less-than
+                    type: mcq_single
+                    difficulty: easy
+                    body: "Which expression means '3 less than $x$'?"
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$3 - x$'}
+                        - {id: b, text: '$x - 3$'}
+                        - {id: c, text: '$3x$'}
+                        - {id: d, text: '$\dfrac{x}{3}$'}
+                      correct_option: b
+                    worked_solution: "'3 less than $x$' starts from $x$ and takes away 3, giving $x - 3$."
+                    skill_tags: ['algebraic notation']
+                  - slug: up-write-expression
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'A taxi charges a $\$4$ flagfall plus $\$2$ per kilometre. What is the cost of a $k$-kilometre trip, in dollars?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$4k + 2$'}
+                        - {id: b, text: '$2 + 4k$'}
+                        - {id: c, text: '$4 + 2k$'}
+                        - {id: d, text: '$6k$'}
+                      correct_option: c
+                    worked_solution: 'The fixed $\$4$ is a constant; the distance part is $\$2$ for each of $k$ kilometres, or $2k$. Total: $4 + 2k$.'
+                    skill_tags: ['writing expressions']
+                  - slug: up-like-terms
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Which of these are like terms with $2x$?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$5x$'}
+                        - {id: b, text: '$2x^2$'}
+                        - {id: c, text: '$-x$'}
+                        - {id: d, text: '$2y$'}
+                      correct_options: ['a', 'c']
+                    worked_solution: 'Like terms have exactly the same pronumeral part. $5x$ and $-x$ match $x$; $2x^2$ has a square and $2y$ has a different letter.'
+                    skill_tags: ['collecting like terms']
+
+              - slug: substitution
+                title: "Substitution"
+                order: 2
+                lecture_file: lectures/substitution.md
+                prerequisites: ['using-pronumerals']
+                questions:
+                  - slug: sub-linear
+                    type: numeric
+                    difficulty: easy
+                    body: 'Evaluate $3x + 4$ when $x = 5$.'
+                    answer_schema: {value: 19, tolerance: 0}
+                    worked_solution: 'Substitute: $3(5) + 4 = 15 + 4 = 19$.'
+                    skill_tags: ['substitution']
+                  - slug: sub-two-pronumerals
+                    type: numeric
+                    difficulty: medium
+                    body: 'Evaluate $2a - b$ when $a = 7$ and $b = 10$.'
+                    answer_schema: {value: 4, tolerance: 0}
+                    worked_solution: 'Substitute: $2(7) - 10 = 14 - 10 = 4$.'
+                    skill_tags: ['substitution']
+                  - slug: sub-negative-value
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Evaluate $5 - 2y$ when $y = -4$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$-3$'}
+                        - {id: b, text: '$13$'}
+                        - {id: c, text: '$-13$'}
+                        - {id: d, text: '$3$'}
+                      correct_option: b
+                    worked_solution: 'Substitute with brackets: $5 - 2(-4) = 5 + 8 = 13$.'
+                    skill_tags: ['substitution']
+
+              - slug: simplifying-expressions
+                title: "Simplifying Expressions"
+                order: 3
+                lecture_file: lectures/simplifying-expressions.md
+                prerequisites: ['using-pronumerals']
+                questions:
+                  - slug: simp-collect-like-terms
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Simplify $4x + 3x$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$7x$'}
+                        - {id: b, text: '$12x$'}
+                        - {id: c, text: '$7x^2$'}
+                        - {id: d, text: '$7$'}
+                      correct_option: a
+                    worked_solution: 'Add the coefficients of the like terms: $4 + 3 = 7$, giving $7x$.'
+                    skill_tags: ['collecting like terms']
+                  - slug: simp-mixed-terms
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Simplify $3m + 7 - 5m - 2$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$-2m + 5$'}
+                        - {id: b, text: '$2m + 5$'}
+                        - {id: c, text: '$-2m + 9$'}
+                        - {id: d, text: '$8m + 5$'}
+                      correct_option: a
+                    worked_solution: 'Like terms in $m$: $3m - 5m = -2m$. Constants: $7 - 2 = 5$. Result: $-2m + 5$.'
+                    skill_tags: ['collecting like terms']
+                  - slug: simp-multiply-terms
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Simplify $2a \times 5b$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$10ab$'}
+                        - {id: b, text: '$7ab$'}
+                        - {id: c, text: '$10a + b$'}
+                        - {id: d, text: '$25ab$'}
+                      correct_option: a
+                    worked_solution: 'Multiply the numbers, then the pronumerals: $2 \times 5 = 10$ and $a \times b = ab$, giving $10ab$.'
+                    skill_tags: ['multiplying algebraic terms']
+
+              - slug: solving-simple-equations
+                title: "Solving Simple Equations"
+                order: 4
+                lecture_file: lectures/solving-simple-equations.md
+                prerequisites: ['simplifying-expressions']
+                questions:
+                  - slug: eq-one-step-addition
+                    type: numeric
+                    difficulty: easy
+                    body: 'Solve $x + 7 = 12$.'
+                    answer_schema: {value: 5, tolerance: 0}
+                    worked_solution: 'Subtract 7 from both sides: $x = 12 - 7 = 5$.'
+                    skill_tags: ['solving equations']
+                  - slug: eq-one-step-multiplication
+                    type: numeric
+                    difficulty: easy
+                    body: 'Solve $3x = 21$.'
+                    answer_schema: {value: 7, tolerance: 0}
+                    worked_solution: 'Divide both sides by 3: $x = 21 \div 3 = 7$.'
+                    skill_tags: ['solving equations']
+                  - slug: eq-two-step
+                    type: numeric
+                    difficulty: medium
+                    body: 'Solve $2x + 5 = 17$.'
+                    answer_schema: {value: 6, tolerance: 0}
+                    worked_solution: 'Subtract 5: $2x = 12$. Divide by 2: $x = 6$.'
+                    skill_tags: ['solving equations']
+
+          # ---------------------------------------------------------------
+          - slug: angle-relationships
+            title: "Angle Relationships"
+            order: 4
+            topics:
+
+              - slug: types-of-angles
+                title: "Types of Angles"
+                order: 1
+                lecture_file: lectures/types-of-angles.md
+                prerequisites: []
+                questions:
+                  - slug: toa-classify-obtuse
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'An angle of $130^\circ$ is:'
+                    answer_schema:
+                      options:
+                        - {id: a, text: 'acute'}
+                        - {id: b, text: 'right'}
+                        - {id: c, text: 'obtuse'}
+                        - {id: d, text: 'reflex'}
+                      correct_option: c
+                    worked_solution: 'An angle between $90^\circ$ and $180^\circ$ is obtuse, and $130^\circ$ is in that range.'
+                    skill_tags: ['angle types']
+                  - slug: toa-right-angle
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'An angle of exactly $90^\circ$ is called a:'
+                    answer_schema:
+                      options:
+                        - {id: a, text: 'straight angle'}
+                        - {id: b, text: 'right angle'}
+                        - {id: c, text: 'acute angle'}
+                        - {id: d, text: 'reflex angle'}
+                      correct_option: b
+                    worked_solution: 'Exactly $90^\circ$ is a right angle, usually marked with a small square.'
+                    skill_tags: ['angle types']
+                  - slug: toa-reflex-range
+                    type: mcq_single
+                    difficulty: medium
+                    body: 'Which range describes a reflex angle?'
+                    answer_schema:
+                      options:
+                        - {id: a, text: 'between $0^\circ$ and $90^\circ$'}
+                        - {id: b, text: 'between $90^\circ$ and $180^\circ$'}
+                        - {id: c, text: 'between $180^\circ$ and $360^\circ$'}
+                        - {id: d, text: 'exactly $180^\circ$'}
+                      correct_option: c
+                    worked_solution: 'A reflex angle is larger than a straight angle but less than a full turn: between $180^\circ$ and $360^\circ$.'
+                    skill_tags: ['angle types']
+
+              - slug: angles-at-a-point-and-on-a-line
+                title: "Angles at a Point and on a Line"
+                order: 2
+                lecture_file: lectures/angles-at-a-point-and-on-a-line.md
+                prerequisites: ['types-of-angles']
+                questions:
+                  - slug: apl-straight-line
+                    type: numeric
+                    difficulty: easy
+                    body: 'Angles $x$, $65^\circ$ and $40^\circ$ lie together on a straight line. Find $x$, in degrees.'
+                    answer_schema: {value: 75, tolerance: 0}
+                    worked_solution: 'Angles on a straight line sum to $180^\circ$: $x = 180 - 65 - 40 = 75$.'
+                    skill_tags: ['angles on a line']
+                  - slug: apl-around-a-point
+                    type: numeric
+                    difficulty: medium
+                    body: 'Angles around a point are $x$, $120^\circ$, $90^\circ$ and $60^\circ$. Find $x$, in degrees.'
+                    answer_schema: {value: 90, tolerance: 0}
+                    worked_solution: 'Angles at a point sum to $360^\circ$: $x = 360 - 120 - 90 - 60 = 90$.'
+                    skill_tags: ['angles at a point']
+                  - slug: apl-vertically-opposite
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'Two straight lines cross. One of the angles is $50^\circ$. The vertically opposite angle is:'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$50^\circ$'}
+                        - {id: b, text: '$130^\circ$'}
+                        - {id: c, text: '$40^\circ$'}
+                        - {id: d, text: '$180^\circ$'}
+                      correct_option: a
+                    worked_solution: 'Vertically opposite angles are equal, so the opposite angle is also $50^\circ$.'
+                    skill_tags: ['vertically opposite angles']
+
+              - slug: angles-and-parallel-lines
+                title: "Angles and Parallel Lines"
+                order: 3
+                lecture_file: lectures/angles-and-parallel-lines.md
+                prerequisites: ['angles-at-a-point-and-on-a-line']
+                questions:
+                  - slug: apar-corresponding
+                    type: mcq_single
+                    difficulty: easy
+                    body: 'A transversal crosses two parallel lines. Corresponding angles are:'
+                    answer_schema:
+                      options:
+                        - {id: a, text: 'equal'}
+                        - {id: b, text: 'supplementary'}
+                        - {id: c, text: 'complementary'}
+                        - {id: d, text: 'unrelated'}
+                      correct_option: a
+                    worked_solution: 'With parallel lines, corresponding angles (the "F" shape) are equal.'
+                    skill_tags: ['parallel line angles']
+                  - slug: apar-co-interior
+                    type: numeric
+                    difficulty: medium
+                    body: 'Co-interior angles between two parallel lines measure $110^\circ$ and $y$. Find $y$, in degrees.'
+                    answer_schema: {value: 70, tolerance: 0}
+                    worked_solution: 'Co-interior angles are supplementary: $y = 180 - 110 = 70$.'
+                    skill_tags: ['parallel line angles']
+                  - slug: apar-alternate
+                    type: numeric
+                    difficulty: medium
+                    body: 'Between two parallel lines, an angle alternate to a $75^\circ$ angle measures how many degrees?'
+                    answer_schema: {value: 75, tolerance: 0}
+                    worked_solution: 'Alternate angles (the "Z" shape) between parallel lines are equal, so the answer is $75$.'
+                    skill_tags: ['parallel line angles']

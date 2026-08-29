@@ -24,6 +24,7 @@ jobs:
             cd api
             .venv/bin/pip install -r requirements.txt
             .venv/bin/alembic upgrade head
+            .venv/bin/python -m app.ingest        # load repo course content (idempotent)
 
             cd ../web
             npm install

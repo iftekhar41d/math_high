@@ -13,8 +13,14 @@ cd api
 python -m venv .venv && .venv/Scripts/activate   # source .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt -r requirements-dev.txt
 alembic upgrade head                              # build the schema (creates data/app.db)
+python -m app.ingest                              # load pilot course content (idempotent)
 uvicorn app.main:app --reload                     # http://localhost:8000, docs at /docs
 ```
+
+`python -m app.ingest [manifest]` loads the course tree, lecture Markdown, and
+questions from `api/content/` (default `content/manifest.yaml`) into the DB. It
+is safe to re-run — every entity is upserted by slug — and rejects a malformed
+manifest without writing anything. See the "Content seeding" architecture note.
 
 Tests: `pytest` (from `api/`). The harness is `tests/conftest.py` — FastAPI
 `TestClient`, an ephemeral in-memory SQLite DB per test, and dependency-override
@@ -125,6 +131,28 @@ MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
 attempt, or writes a marker row (`attempt_no = 0`) if there's no submission yet.
 Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 
+### Content seeding (`app/ingest/`)
+Course content is authored as repo files under `api/content/`: `manifest.yaml`
+describes the Year Level → Subject → Unit → Topic tree (with `order`,
+prerequisites by topic slug, and each Topic's questions incl. `answer_schema` +
+`worked_solution`), and one Markdown file per Topic under `content/lectures/`
+holds the lecture body. `slug` is the stable natural key at every level.
+
+`app/ingest/` is the reusable core, structured as the contract a future admin
+upload UI will call — the CLI is only a wrapper:
+- `manifest.py` — `parse_manifest(data, lecture_loader=...)` / `load_manifest_file(path)`
+  validate structure, question types, `answer_schema` shape, slug uniqueness,
+  and prerequisite references, raising `ManifestError` (never a bare
+  `ValidationError`) for anything an author can fix. No side effects.
+- `ingest.py` — `ingest_manifest(db, manifest)` / `load_and_ingest(db, path)`
+  upsert every entity by slug in one transaction; a second run over the same
+  input changes and creates nothing (idempotent). Entities dropped from the
+  manifest are left in place, not deleted (they may carry attempt/view rows).
+- `__main__.py` — `python -m app.ingest [manifest]`.
+
+Run it locally after `alembic upgrade head`; it also runs in `setup-vps.sh` and
+the deploy workflow, after migrations.
+
 ### Adding an endpoint
 1. Model in `app/models.py`, then `alembic revision --autogenerate -m "..."` and
    review the migration. Pydantic schemas in `app/schemas.py` (use
@@ -139,8 +167,8 @@ Full reference: [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md).
 
 Push to `main` → `.github/workflows/deploy.yml` SSHes into the VPS and runs:
 `git reset --hard origin/main` → `pip install -r requirements.txt` →
-`alembic upgrade head` → `npm install && npm run build` →
-`systemctl restart math-high-api` + `reload nginx`.
+`alembic upgrade head` → `python -m app.ingest` (load repo content) →
+`npm install && npm run build` → `systemctl restart math-high-api` + `reload nginx`.
 
 The deploy user's sudo is scoped to exactly those two `systemctl` commands. A fresh
 VPS is bootstrapped once with `deploy/setup-vps.sh [domain] [repo-url] [app-dir]`

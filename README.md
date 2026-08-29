@@ -23,6 +23,7 @@ cd api
 python -m venv .venv && .venv/Scripts/activate   # or source .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt
 alembic upgrade head                              # build the SQLite schema (creates data/app.db)
+python -m app.ingest                              # load pilot course content (idempotent)
 uvicorn app.main:app --reload
 
 # Web (separate terminal)

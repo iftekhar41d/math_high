@@ -161,10 +161,20 @@ class LoginAttempt(Base):
 # unique. See `CONTEXT.md` for what each level means.
 
 
+# The `slug` on every level below is the stable natural key the seed ingest
+# (ticket 05) upserts by: re-running the ingest matches rows by slug and updates
+# them in place rather than inserting duplicates. Nullable only so the column
+# could be added to a populated database without a backfill; the ingest always
+# sets it, and nothing else creates these rows in Phase 1.
+
+
 class YearLevel(Base):
     __tablename__ = "year_levels"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str | None] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
     name: Mapped[str] = mapped_column(String)
     syllabus_region: Mapped[str] = mapped_column(String)
 
@@ -179,6 +189,9 @@ class Subject(Base):
     __tablename__ = "subjects"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str | None] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
     year_level_id: Mapped[int] = mapped_column(
         ForeignKey("year_levels.id"), index=True
     )
@@ -197,6 +210,9 @@ class Unit(Base):
     __tablename__ = "units"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    slug: Mapped[str | None] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
     subject_id: Mapped[int] = mapped_column(
         ForeignKey("subjects.id"), index=True
     )
@@ -334,6 +350,11 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    # Stable natural key the seed ingest upserts by (see the note above
+    # `YearLevel`). Nullable for the same reason.
+    slug: Mapped[str | None] = mapped_column(
+        String, unique=True, index=True, nullable=True
+    )
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
     # One of QUESTION_* above.
     type: Mapped[str] = mapped_column(String)

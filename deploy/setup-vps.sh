@@ -72,6 +72,9 @@ python3 -m venv .venv
 echo "==> Applying database migrations (alembic upgrade head)"
 .venv/bin/alembic upgrade head
 
+echo "==> Loading course content (python -m app.ingest, idempotent)"
+.venv/bin/python -m app.ingest
+
 echo "==> Creating the lecture media directory (nginx serves it at /media/)"
 mkdir -p "$APP_DIR/api/data/media"
 
