@@ -7,8 +7,9 @@ Create Date: 2026-08-29 12:55:15.960542
 Adds a `slug` column to `year_levels`, `subjects`, `units`, and `questions` so
 the seed ingest (ticket 05) can upsert every entity by a stable natural key,
 matching the existing `topics.slug`. Nullable + unique: nullable so the column
-adds cleanly to a populated database, unique so a slug identifies exactly one
-row. The ingest is the only writer of these tables in Phase 1 and always sets it.
+adds cleanly to a populated database (SQLite allows many NULLs under a unique
+index), unique so a non-null slug identifies at most one row. The ingest is the
+only writer of these tables in Phase 1 and always sets it.
 """
 from typing import Sequence, Union
 

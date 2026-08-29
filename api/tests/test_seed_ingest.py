@@ -8,6 +8,8 @@ ingested tree serves through the content API, the way a student would see it.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from app.ingest import (
@@ -145,10 +147,11 @@ def _counts(db) -> dict[str, int]:
     }
 
 
-def _ingest(db, data: dict | None = None):
+def _ingest(db, data: dict | None = None, lectures: dict | None = None):
     if data is None:
         data = _manifest()
-    return ingest_manifest(db, parse_manifest(data, lecture_loader=_loader))
+    loader = _loader if lectures is None else (_LECTURES | lectures).__getitem__
+    return ingest_manifest(db, parse_manifest(data, lecture_loader=loader))
 
 
 # -- idempotency ------------------------------------------------------------
@@ -166,7 +169,7 @@ def test_ingest_creates_the_whole_tree(db_session):
         "questions": 3,
         "skill_tags": 2,  # "adding integers" is shared by two questions
     }
-    assert summary.as_dict() == {
+    expected = {
         "year_levels": 1,
         "subjects": 1,
         "units": 1,
@@ -174,6 +177,8 @@ def test_ingest_creates_the_whole_tree(db_session):
         "questions": 3,
         "skill_tags": 2,
     }
+    assert summary.total == expected
+    assert summary.created == expected  # a first run creates every row
 
     fractions = db_session.query(Topic).filter_by(slug="fractions").one()
     assert [p.slug for p in fractions.prerequisites] == ["integers"]
@@ -182,13 +187,15 @@ def test_ingest_creates_the_whole_tree(db_session):
 
 
 def test_running_twice_yields_exactly_one_set_of_rows(db_session):
-    _ingest(db_session)
+    first_summary = _ingest(db_session)
     first = _counts(db_session)
     integers_id = db_session.query(Topic).filter_by(slug="integers").one().id
 
-    _ingest(db_session)  # same input, again
+    second = _ingest(db_session)  # same input, again
 
     assert _counts(db_session) == first
+    assert second.total == first_summary.total  # same manifest → same coverage
+    assert second.created == {k: 0 for k in second.created}  # but nothing new
     # Same rows, not replacements.
     assert db_session.query(Topic).filter_by(slug="integers").one().id == integers_id
     fractions = db_session.query(Topic).filter_by(slug="fractions").one()
@@ -205,11 +212,11 @@ def test_second_run_updates_changed_fields_in_place(db_session):
     unit["title"] = "Number and Integers"
     integers = unit["topics"][0]
     integers["questions"][0]["body"] = "What is $-3 + 6$?"
-    _LECTURES["lectures/integers.md"] = "# Integers\n\nNow with more detail.\n"
-    try:
-        _ingest(db_session, data)
-    finally:
-        _LECTURES["lectures/integers.md"] = "# Integers\n\nA number line runs both ways.\n"
+    _ingest(
+        db_session,
+        data,
+        lectures={"lectures/integers.md": "# Integers\n\nNow with more detail.\n"},
+    )
 
     assert db_session.query(Unit).one().title == "Number and Integers"
     q = db_session.query(Question).filter_by(slug="int-add").one()
@@ -303,6 +310,18 @@ def test_a_non_mapping_root_is_rejected(db_session):
     _assert_nothing_written(db_session)
 
 
+def test_ingest_manifest_revalidates_a_hand_built_manifest(db_session):
+    """The upload-UI path is `parse_manifest` then `ingest_manifest`, but a
+    caller could build a `Manifest` and skip the first — `ingest_manifest` must
+    still catch a dangling prerequisite and write nothing."""
+    manifest = parse_manifest(_manifest(), lecture_loader=_loader)
+    manifest.year_levels[0].subjects[0].units[0].topics[1].prerequisites = ["ghost"]
+
+    with pytest.raises(ManifestError, match="not a topic in this manifest"):
+        ingest_manifest(db_session, manifest)
+    _assert_nothing_written(db_session)
+
+
 # -- helpers for the parametrized mutations ------------------------------
 
 
@@ -346,7 +365,7 @@ def _write_fixture(tmp_path):
 def test_load_and_ingest_reads_yaml_and_sibling_lecture_files(db_session, tmp_path):
     summary = load_and_ingest(db_session, _write_fixture(tmp_path))
 
-    assert summary.topics == 2
+    assert summary.total["topics"] == 2
     integers = db_session.query(Topic).filter_by(slug="integers").one()
     assert "Body." in integers.lecture_content.body
 
@@ -405,3 +424,27 @@ def test_ingested_tree_is_browsable_through_the_content_api(
     assert "correct_option" not in client.post(
         "/practice/sessions", json={"topic_slug": "integers"}, headers=headers
     ).text
+
+
+# -- the shipped pilot manifest ---------------------------------------------
+
+_REPO_MANIFEST = Path(__file__).resolve().parents[1] / "content" / "manifest.yaml"
+
+
+def test_shipped_pilot_manifest_loads_and_is_idempotent(db_session):
+    """A broken edit to api/content/ should fail here, not first on deploy."""
+    first = load_and_ingest(db_session, _REPO_MANIFEST)
+
+    assert first.total["subjects"] == 1  # exactly one Subject ("Mathematics")
+    assert first.total["units"] == 4
+    assert first.total["topics"] >= 15
+    assert first.total["questions"] >= 45
+    assert first.created == first.total  # a fresh DB creates all of it
+
+    # Every question type the pilot ships must be represented.
+    types = {t for (t,) in db_session.query(Question.type).distinct()}
+    assert types == {"mcq_single", "mcq_multi", "numeric"}
+
+    second = load_and_ingest(db_session, _REPO_MANIFEST)
+    assert second.total == first.total
+    assert second.created == {k: 0 for k in second.created}  # re-run adds nothing

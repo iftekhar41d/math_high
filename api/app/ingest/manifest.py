@@ -138,7 +138,8 @@ class QuestionSpec(_Node):
 
 def _check_answer_schema(qtype: str, schema: dict[str, Any]) -> None:
     """Reject an `answer_schema` that would not grade — while it is still cheap
-    author feedback rather than a runtime surprise."""
+    author feedback rather than a runtime surprise. `app/practice/grading.py`
+    owns the shape at runtime; this mirrors the keys it reads, per `type`."""
     if qtype in (QUESTION_MCQ_SINGLE, QUESTION_MCQ_MULTI):
         options = schema.get("options")
         if not isinstance(options, list) or not options:
@@ -261,12 +262,11 @@ class Manifest(_Node):
     year_levels: list[YearLevelSpec] = Field(min_length=1)
 
     def iter_topics(self):
-        """(unit_spec, topic_spec) for every topic, tree order."""
+        """Every `TopicSpec`, in tree order."""
         for yl in self.year_levels:
             for subject in yl.subjects:
                 for unit in subject.units:
-                    for topic in unit.topics:
-                        yield unit, topic
+                    yield from unit.topics
 
 
 def _format_validation_error(exc: ValidationError) -> str:
@@ -310,9 +310,9 @@ def _check_slug_uniqueness(manifest: Manifest) -> None:
 
 
 def _check_prerequisites(manifest: Manifest) -> None:
-    topic_slugs = {topic.slug for _unit, topic in manifest.iter_topics()}
+    topic_slugs = {topic.slug for topic in manifest.iter_topics()}
     problems: list[str] = []
-    for _unit, topic in manifest.iter_topics():
+    for topic in manifest.iter_topics():
         for prereq in topic.prerequisites:
             if prereq == topic.slug:
                 problems.append(
@@ -329,15 +329,33 @@ def _check_prerequisites(manifest: Manifest) -> None:
         )
 
 
+def _check_lecture_bodies(manifest: Manifest) -> None:
+    blank = [t.slug for t in manifest.iter_topics() if not t.lecture_body.strip()]
+    if blank:
+        raise ManifestError(
+            "topics have no lecture body (lecture file empty or unresolved):"
+            "\n  - " + "\n  - ".join(blank)
+        )
+
+
 def _resolve_lectures(manifest: Manifest, loader: LectureLoader) -> None:
-    for _unit, topic in manifest.iter_topics():
-        body = loader(topic.lecture_file)
-        if not body.strip():
-            raise ManifestError(
-                f"lecture file {topic.lecture_file!r} for topic "
-                f"{topic.slug!r} is empty"
-            )
-        topic.lecture_body = body
+    for topic in manifest.iter_topics():
+        topic.lecture_body = loader(topic.lecture_file)
+    _check_lecture_bodies(manifest)
+
+
+def assert_manifest_consistent(manifest: Manifest) -> None:
+    """Cross-entity checks that need no I/O: slugs unique within each kind,
+    every prerequisite resolves to a topic in the manifest, every topic has a
+    non-empty `lecture_body`.
+
+    `parse_manifest` runs these while loading; `ingest_manifest` runs them again
+    at the top so a caller that builds a `Manifest` by hand (the admin-upload-UI
+    path the module docstring describes) is held to the same guarantees.
+    """
+    _check_slug_uniqueness(manifest)
+    _check_prerequisites(manifest)
+    _check_lecture_bodies(manifest)
 
 
 def parse_manifest(data: Any, *, lecture_loader: LectureLoader) -> Manifest:
@@ -355,7 +373,7 @@ def parse_manifest(data: Any, *, lecture_loader: LectureLoader) -> Manifest:
     except ValidationError as exc:
         raise ManifestError(_format_validation_error(exc)) from exc
 
-    _check_slug_uniqueness(manifest)
+    _check_slug_uniqueness(manifest)  # early, before any file I/O
     _resolve_lectures(manifest, lecture_loader)
     _check_prerequisites(manifest)
     return manifest

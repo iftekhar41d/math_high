@@ -3,9 +3,10 @@
 # Loaded with:  cd api && python -m app.ingest
 # Safe to re-run: every entity is upserted by its `slug`.
 #
-# This is a representative subset (4 Units, 15 Topics, 45 Questions) — enough for
-# a student to do real study. Bulk question authoring continues on top of it, by
-# adding entries here and re-running the ingest.
+# This is a representative subset (4 Units, 15 Topics, 53 Questions — a mix of
+# mcq_single, mcq_multi and numeric) — enough for a student to do real study.
+# Bulk question authoring continues on top of it, by adding entries here and
+# re-running the ingest.
 #
 # Format reference and validation rules: api/app/ingest/manifest.py
 
@@ -64,6 +65,20 @@ year_levels:
                     answer_schema: {value: 8, tolerance: 0}
                     worked_solution: 'The absolute value is the distance from zero, ignoring direction. -8 is 8 units from zero, so $|-8| = 8$.'
                     skill_tags: ['absolute value']
+                  - slug: int-nl-negative-set
+                    type: mcq_multi
+                    difficulty: easy
+                    body: 'Select all of the integers below that are negative.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '-6'}
+                        - {id: b, text: '0'}
+                        - {id: c, text: '-1'}
+                        - {id: d, text: '4'}
+                        - {id: e, text: '-20'}
+                      correct_options: ['a', 'c', 'e']
+                    worked_solution: 'A negative integer is less than zero: -6, -1 and -20. Zero is neither positive nor negative, and 4 is positive.'
+                    skill_tags: ['ordering integers']
 
               - slug: adding-and-subtracting-integers
                 title: "Adding and Subtracting Integers"
@@ -166,6 +181,20 @@ year_levels:
                       correct_option: b
                     worked_solution: 'Addition and subtraction are worked left to right: $20 - 8 = 12$, then $12 + 3 = 15$.'
                     skill_tags: ['order of operations']
+                  - slug: ooo-true-statements
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Select every statement that is true.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$2 + 3 \times 4 = 20$'}
+                        - {id: b, text: '$2 + 3 \times 4 = 14$'}
+                        - {id: c, text: '$(2 + 3) \times 4 = 20$'}
+                        - {id: d, text: '$10 - 2 - 3 = 11$'}
+                        - {id: e, text: '$12 \div 2 \div 3 = 2$'}
+                      correct_options: ['b', 'c', 'e']
+                    worked_solution: 'b: multiply before add, $2 + 12 = 14$. c: bracket first, $5 \times 4 = 20$. e: left to right, $6 \div 3 = 2$. a should equal 14; d should equal 5.'
+                    skill_tags: ['order of operations']
 
           # ---------------------------------------------------------------
           - slug: fractions-decimals-percentages
@@ -217,6 +246,20 @@ year_levels:
                       correct_option: b
                     worked_solution: 'Common denominator 12: $\dfrac{3}{4} = \dfrac{9}{12}$ and $\dfrac{5}{6} = \dfrac{10}{12}$. Since $10 > 9$, $\dfrac{5}{6}$ is larger.'
                     skill_tags: ['comparing fractions']
+                  - slug: ef-equivalent-to-half
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Select every fraction equivalent to $\dfrac{1}{2}$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{2}{4}$'}
+                        - {id: b, text: '$\dfrac{3}{5}$'}
+                        - {id: c, text: '$\dfrac{5}{10}$'}
+                        - {id: d, text: '$\dfrac{4}{6}$'}
+                        - {id: e, text: '$\dfrac{6}{12}$'}
+                      correct_options: ['a', 'c', 'e']
+                    worked_solution: 'In simplest form $\dfrac{2}{4}$, $\dfrac{5}{10}$ and $\dfrac{6}{12}$ are all $\dfrac{1}{2}$. $\dfrac{3}{5}$ stays as it is and $\dfrac{4}{6} = \dfrac{2}{3}$.'
+                    skill_tags: ['equivalent fractions']
 
               - slug: adding-and-subtracting-fractions
                 title: "Adding and Subtracting Fractions"
@@ -336,6 +379,20 @@ year_levels:
                     answer_schema: {value: 9, tolerance: 0}
                     worked_solution: '$15\% = 0.15$, and $0.15 \times 60 = 9$.'
                     skill_tags: ['percentage of a quantity']
+                  - slug: fdp-represent-one-half
+                    type: mcq_multi
+                    difficulty: easy
+                    body: 'Select every value equal to one half.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$\dfrac{1}{2}$'}
+                        - {id: b, text: '$0.5$'}
+                        - {id: c, text: '$5\%$'}
+                        - {id: d, text: '$0.05$'}
+                        - {id: e, text: '$50\%$'}
+                      correct_options: ['a', 'b', 'e']
+                    worked_solution: 'One half is $\dfrac{1}{2} = 0.5 = 50\%$. Both $5\%$ and $0.05$ mean one twentieth.'
+                    skill_tags: ['percentage conversion']
 
           # ---------------------------------------------------------------
           - slug: algebraic-techniques
@@ -468,6 +525,20 @@ year_levels:
                       correct_option: a
                     worked_solution: 'Multiply the numbers, then the pronumerals: $2 \times 5 = 10$ and $a \times b = ab$, giving $10ab$.'
                     skill_tags: ['multiplying algebraic terms']
+                  - slug: simp-equal-to-5x
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Select every expression that simplifies to $5x$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$2x + 3x$'}
+                        - {id: b, text: '$x + x + x + x + x$'}
+                        - {id: c, text: '$5 + x$'}
+                        - {id: d, text: '$10x - 5x$'}
+                        - {id: e, text: '$5x^2$'}
+                      correct_options: ['a', 'b', 'd']
+                    worked_solution: '$2x + 3x = 5x$; five copies of $x$ is $5x$; $10x - 5x = 5x$. $5 + x$ has unlike terms and $5x^2$ carries a square.'
+                    skill_tags: ['collecting like terms']
 
               - slug: solving-simple-equations
                 title: "Solving Simple Equations"
@@ -495,6 +566,20 @@ year_levels:
                     body: 'Solve $2x + 5 = 17$.'
                     answer_schema: {value: 6, tolerance: 0}
                     worked_solution: 'Subtract 5: $2x = 12$. Divide by 2: $x = 6$.'
+                    skill_tags: ['solving equations']
+                  - slug: eq-solution-is-four
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Select every equation that has the solution $x = 4$.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$x + 3 = 7$'}
+                        - {id: b, text: '$2x = 8$'}
+                        - {id: c, text: '$x - 1 = 5$'}
+                        - {id: d, text: '$3x - 2 = 10$'}
+                        - {id: e, text: '$\dfrac{x}{2} = 1$'}
+                      correct_options: ['a', 'b', 'd']
+                    worked_solution: 'Substitute $x = 4$: $4 + 3 = 7$, $2(4) = 8$, $3(4) - 2 = 10$ all hold. $x - 1 = 5$ needs $x = 6$; $\dfrac{x}{2} = 1$ needs $x = 2$.'
                     skill_tags: ['solving equations']
 
           # ---------------------------------------------------------------
@@ -547,6 +632,20 @@ year_levels:
                         - {id: d, text: 'exactly $180^\circ$'}
                       correct_option: c
                     worked_solution: 'A reflex angle is larger than a straight angle but less than a full turn: between $180^\circ$ and $360^\circ$.'
+                    skill_tags: ['angle types']
+                  - slug: toa-acute-set
+                    type: mcq_multi
+                    difficulty: easy
+                    body: 'Select every angle that is acute.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: '$15^\circ$'}
+                        - {id: b, text: '$90^\circ$'}
+                        - {id: c, text: '$89^\circ$'}
+                        - {id: d, text: '$100^\circ$'}
+                        - {id: e, text: '$45^\circ$'}
+                      correct_options: ['a', 'c', 'e']
+                    worked_solution: 'An acute angle is between $0^\circ$ and $90^\circ$: $15^\circ$, $89^\circ$ and $45^\circ$. $90^\circ$ is a right angle and $100^\circ$ is obtuse.'
                     skill_tags: ['angle types']
 
               - slug: angles-at-a-point-and-on-a-line
@@ -615,4 +714,17 @@ year_levels:
                     body: 'Between two parallel lines, an angle alternate to a $75^\circ$ angle measures how many degrees?'
                     answer_schema: {value: 75, tolerance: 0}
                     worked_solution: 'Alternate angles (the "Z" shape) between parallel lines are equal, so the answer is $75$.'
+                    skill_tags: ['parallel line angles']
+                  - slug: apar-equal-pairs
+                    type: mcq_multi
+                    difficulty: medium
+                    body: 'Two parallel lines are cut by a transversal. Select every pair of angles that must be equal.'
+                    answer_schema:
+                      options:
+                        - {id: a, text: 'corresponding angles'}
+                        - {id: b, text: 'alternate angles'}
+                        - {id: c, text: 'co-interior angles'}
+                        - {id: d, text: 'vertically opposite angles'}
+                      correct_options: ['a', 'b', 'd']
+                    worked_solution: 'Corresponding, alternate and vertically opposite angles are equal. Co-interior angles are supplementary -- they add to $180^\circ$.'
                     skill_tags: ['parallel line angles']

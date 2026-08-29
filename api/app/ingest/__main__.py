@@ -43,8 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         db.close()
 
     print(f"ingested {args.manifest}:")
-    for key, value in summary.as_dict().items():
-        print(f"  {key:12} {value}")
+    for kind, total in summary.total.items():
+        print(f"  {kind:12} {total:>4}   ({summary.created[kind]} new)")
     return 0
 
 

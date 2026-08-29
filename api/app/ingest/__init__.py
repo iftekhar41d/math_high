@@ -11,7 +11,12 @@ call; `python -m app.ingest` (see `__main__.py`) is only a thin CLI over it.
 
 from app.ingest.errors import ManifestError
 from app.ingest.ingest import IngestSummary, ingest_manifest, load_and_ingest
-from app.ingest.manifest import Manifest, load_manifest_file, parse_manifest
+from app.ingest.manifest import (
+    Manifest,
+    assert_manifest_consistent,
+    load_manifest_file,
+    parse_manifest,
+)
 
 __all__ = [
     "ManifestError",
@@ -19,6 +24,7 @@ __all__ = [
     "ingest_manifest",
     "load_and_ingest",
     "Manifest",
+    "assert_manifest_consistent",
     "load_manifest_file",
     "parse_manifest",
 ]

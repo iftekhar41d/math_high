@@ -17,19 +17,18 @@ the CLI (`python -m app.ingest`) is only a wrapper.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.database import Base
 from app.ingest.manifest import (
     Manifest,
     QuestionSpec,
-    SubjectSpec,
     TopicSpec,
-    UnitSpec,
-    YearLevelSpec,
+    assert_manifest_consistent,
     load_manifest_file,
 )
 from app.models import (
@@ -42,56 +41,87 @@ from app.models import (
     YearLevel,
 )
 
+# The kinds a summary reports, in tree order.
+_KINDS = ("year_levels", "subjects", "units", "topics", "questions", "skill_tags")
+
 
 @dataclass
 class IngestSummary:
-    """How many rows of each kind the run touched (created or updated)."""
+    """Per kind: how many rows the manifest covers (`total`) and how many of
+    those the run actually inserted (`created`). A no-op re-run has every
+    `created` at zero."""
 
-    year_levels: int = 0
-    subjects: int = 0
-    units: int = 0
-    topics: int = 0
-    questions: int = 0
-    skill_tags: int = 0
+    total: dict[str, int] = field(
+        default_factory=lambda: {k: 0 for k in _KINDS}
+    )
+    created: dict[str, int] = field(
+        default_factory=lambda: {k: 0 for k in _KINDS}
+    )
 
-    def as_dict(self) -> dict[str, int]:
-        return asdict(self)
+    def record(self, kind: str, was_created: bool) -> None:
+        self.total[kind] += 1
+        if was_created:
+            self.created[kind] += 1
 
 
 def ingest_manifest(db: Session, manifest: Manifest) -> IngestSummary:
-    """Upsert everything in `manifest`. Commits on success; on any error rolls
-    back so a failed run writes nothing."""
+    """Upsert everything in `manifest`. Re-validates cross-entity consistency
+    first (so a hand-built `Manifest` is held to the same guarantees as a parsed
+    one), commits on success, and on any error rolls back so a failed run writes
+    nothing."""
+    assert_manifest_consistent(manifest)
+
     summary = IngestSummary()
     tag_cache: dict[str, SkillTag] = {}
     topics_by_slug: dict[str, Topic] = {}
     try:
         for yl_spec in manifest.year_levels:
-            year_level = _upsert_year_level(db, yl_spec)
-            summary.year_levels += 1
+            year_level, made = _upsert_by_slug(db, YearLevel, yl_spec.slug)
+            year_level.name = yl_spec.name
+            year_level.syllabus_region = yl_spec.syllabus_region
+            db.flush()
+            summary.record("year_levels", made)
+
             for subj_spec in yl_spec.subjects:
-                subject = _upsert_subject(db, year_level, subj_spec)
-                summary.subjects += 1
+                subject, made = _upsert_by_slug(db, Subject, subj_spec.slug)
+                subject.year_level_id = year_level.id
+                subject.title = subj_spec.title
+                subject.order = subj_spec.order
+                db.flush()
+                summary.record("subjects", made)
+
                 for unit_spec in subj_spec.units:
-                    unit = _upsert_unit(db, subject, unit_spec)
-                    summary.units += 1
+                    unit, made = _upsert_by_slug(db, Unit, unit_spec.slug)
+                    unit.subject_id = subject.id
+                    unit.title = unit_spec.title
+                    unit.order = unit_spec.order
+                    db.flush()
+                    summary.record("units", made)
+
                     for topic_spec in unit_spec.topics:
-                        topic = _upsert_topic(db, unit, topic_spec)
+                        topic, made = _upsert_by_slug(db, Topic, topic_spec.slug)
+                        topic.unit_id = unit.id
+                        topic.title = topic_spec.title
+                        topic.order = topic_spec.order
+                        db.flush()
                         topics_by_slug[topic_spec.slug] = topic
-                        summary.topics += 1
+                        summary.record("topics", made)
+
                         _upsert_lecture(db, topic, topic_spec)
                         for q_spec in topic_spec.questions:
-                            _upsert_question(db, topic, q_spec, tag_cache)
-                            summary.questions += 1
+                            made = _upsert_question(
+                                db, topic, q_spec, tag_cache, summary
+                            )
+                            summary.record("questions", made)
         db.flush()
 
         # Second pass: wire prerequisites now that every Topic row exists.
-        for _unit, topic_spec in manifest.iter_topics():
+        for topic_spec in manifest.iter_topics():
             topic = topics_by_slug[topic_spec.slug]
             topic.prerequisites = [
                 topics_by_slug[slug] for slug in topic_spec.prerequisites
             ]
 
-        summary.skill_tags = len(tag_cache)
         db.commit()
     except Exception:
         db.rollback()
@@ -104,53 +134,17 @@ def load_and_ingest(db: Session, manifest_path: str | Path) -> IngestSummary:
     return ingest_manifest(db, load_manifest_file(manifest_path))
 
 
-def _upsert_year_level(db: Session, spec: YearLevelSpec) -> YearLevel:
-    row = db.scalar(select(YearLevel).where(YearLevel.slug == spec.slug))
-    if row is None:
-        row = YearLevel(slug=spec.slug)
-        db.add(row)
-    row.name = spec.name
-    row.syllabus_region = spec.syllabus_region
-    db.flush()
-    return row
-
-
-def _upsert_subject(
-    db: Session, year_level: YearLevel, spec: SubjectSpec
-) -> Subject:
-    row = db.scalar(select(Subject).where(Subject.slug == spec.slug))
-    if row is None:
-        row = Subject(slug=spec.slug)
-        db.add(row)
-    row.year_level_id = year_level.id
-    row.title = spec.title
-    row.order = spec.order
-    db.flush()
-    return row
-
-
-def _upsert_unit(db: Session, subject: Subject, spec: UnitSpec) -> Unit:
-    row = db.scalar(select(Unit).where(Unit.slug == spec.slug))
-    if row is None:
-        row = Unit(slug=spec.slug)
-        db.add(row)
-    row.subject_id = subject.id
-    row.title = spec.title
-    row.order = spec.order
-    db.flush()
-    return row
-
-
-def _upsert_topic(db: Session, unit: Unit, spec: TopicSpec) -> Topic:
-    row = db.scalar(select(Topic).where(Topic.slug == spec.slug))
-    if row is None:
-        row = Topic(slug=spec.slug)
-        db.add(row)
-    row.unit_id = unit.id
-    row.title = spec.title
-    row.order = spec.order
-    db.flush()
-    return row
+def _upsert_by_slug(
+    db: Session, model: type[Base], slug: str
+) -> tuple[Base, bool]:
+    """Return `(row, created)` for the `model` row with this `slug`, inserting a
+    bare one if absent. The caller sets the remaining columns."""
+    row = db.scalar(select(model).where(model.slug == slug))
+    if row is not None:
+        return row, False
+    row = model(slug=slug)
+    db.add(row)
+    return row, True
 
 
 def _upsert_lecture(db: Session, topic: Topic, spec: TopicSpec) -> None:
@@ -179,23 +173,27 @@ def _upsert_question(
     topic: Topic,
     spec: QuestionSpec,
     tag_cache: dict[str, SkillTag],
-) -> None:
-    row = db.scalar(select(Question).where(Question.slug == spec.slug))
-    if row is None:
-        row = Question(slug=spec.slug)
-        db.add(row)
+    summary: IngestSummary,
+) -> bool:
+    row, created = _upsert_by_slug(db, Question, spec.slug)
     row.topic_id = topic.id
     row.type = spec.type
     row.difficulty = spec.difficulty
     row.body = spec.body
     row.answer_schema = spec.answer_schema
     row.worked_solution = spec.worked_solution
-    row.skill_tags = [_get_tag(db, name, tag_cache) for name in spec.skill_tags]
+    row.skill_tags = [
+        _get_tag(db, name, tag_cache, summary) for name in spec.skill_tags
+    ]
     db.flush()
+    return created
 
 
 def _get_tag(
-    db: Session, name: str, cache: dict[str, SkillTag]
+    db: Session,
+    name: str,
+    cache: dict[str, SkillTag],
+    summary: IngestSummary,
 ) -> SkillTag:
     if name in cache:
         return cache[name]
@@ -204,5 +202,8 @@ def _get_tag(
         tag = SkillTag(name=name)
         db.add(tag)
         db.flush()
+        summary.record("skill_tags", True)
+    else:
+        summary.record("skill_tags", False)
     cache[name] = tag
     return tag
