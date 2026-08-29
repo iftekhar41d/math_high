@@ -116,6 +116,50 @@ def practice_tree(db_session):
         answer_schema={"value": 1.71, "tolerance": 0.01},
         worked_solution="12 / 7 = 1.714..., which rounds to 1.71.",
     )
+    symbolic = Question(
+        topic_id=integers.id,
+        type="symbolic",
+        difficulty="medium",
+        body=r"Expand $2(x + 1)$.",
+        answer_schema={
+            "expression": "2x + 2",
+            "variables": ["x"],
+            "domain": "real",
+        },
+        worked_solution="Distribute the 2: 2*x + 2*1 = 2x + 2.",
+    )
+    multi_part = Question(
+        topic_id=integers.id,
+        type="multi_part",
+        difficulty="hard",
+        body="For the line $y = 3x - 4$:",
+        answer_schema={
+            "parts": [
+                {
+                    "id": "slope",
+                    "type": "numeric",
+                    "body": "What is the gradient?",
+                    "answer_schema": {"value": 3, "tolerance": 0},
+                },
+                {
+                    "id": "intercept",
+                    "type": "numeric",
+                    "body": "Where does it cross the y-axis?",
+                    "answer_schema": {"value": -4, "tolerance": 0},
+                },
+                {
+                    "id": "form",
+                    "type": "symbolic",
+                    "body": "Rewrite the right-hand side, factored.",
+                    "answer_schema": {
+                        "expression": "3*x - 4",
+                        "variables": ["x"],
+                    },
+                },
+            ]
+        },
+        worked_solution="Gradient 3, intercept -4; 3x - 4 is already simplest.",
+    )
     draft_q = Question(
         topic_id=draft.id,
         type="mcq_single",
@@ -129,13 +173,17 @@ def practice_tree(db_session):
     )
     single.skill_tags.extend([adding, ordering])
     multi.skill_tags.append(ordering)
-    db_session.add_all([single, multi, numeric, draft_q])
+    db_session.add_all(
+        [single, multi, numeric, symbolic, multi_part, draft_q]
+    )
     db_session.commit()
 
     return {
         "single_id": single.id,
         "multi_id": multi.id,
         "numeric_id": numeric.id,
+        "symbolic_id": symbolic.id,
+        "multi_part_id": multi_part.id,
         "draft_question_id": draft_q.id,
     }
 
@@ -159,17 +207,32 @@ def test_session_returns_topic_questions_in_order_with_render_data(
 
     assert body["topic"]["slug"] == "integers"
     qs = body["questions"]
-    assert [q["type"] for q in qs] == ["mcq_single", "mcq_multi", "numeric"]
-    assert [q["difficulty"] for q in qs] == ["easy", "medium", "hard"]
+    assert [q["type"] for q in qs] == [
+        "mcq_single",
+        "mcq_multi",
+        "numeric",
+        "symbolic",
+        "multi_part",
+    ]
+    assert [q["difficulty"] for q in qs[:3]] == ["easy", "medium", "hard"]
     assert "-3 + 5" in qs[0]["body"]
 
-    # MCQ options carry id + text only; numeric has no options.
+    # MCQ options carry id + text only; numeric / symbolic have no options.
     assert [o["id"] for o in qs[0]["options"]] == ["a", "b", "c"]
     assert {o["text"] for o in qs[0]["options"]} == {"-8", "2", "8"}
     assert qs[2]["options"] is None
+    assert qs[3]["options"] is None and qs[3]["parts"] is None
 
-    # The payload is scoped to body / difficulty / options — nothing else.
-    assert set(qs[0].keys()) == {"id", "type", "difficulty", "body", "options"}
+    # The payload is scoped to body / difficulty / options / parts — nothing else.
+    assert set(qs[0].keys()) == {
+        "id",
+        "type",
+        "difficulty",
+        "body",
+        "options",
+        "parts",
+    }
+    assert qs[0]["parts"] is None
 
 
 def test_practice_payload_never_reveals_the_correct_answer(
@@ -185,6 +248,9 @@ def test_practice_payload_never_reveals_the_correct_answer(
         "worked_solution",
         "tolerance",
         '"value"',
+        "expression",  # symbolic + multi_part symbolic parts
+        "variables",
+        "3*x - 4",  # a multi_part part's expected expression
     ):
         assert leak not in raw
 
@@ -285,6 +351,147 @@ def test_numeric_inside_and_outside_tolerance(
     assert submit(1.6899) is False
 
 
+# -- submitting: symbolic ------------------------------------------------
+
+
+def test_symbolic_accepts_equivalent_but_not_identical_answers(
+    client, fake_email, practice_tree
+):
+    headers = _student(client, fake_email)
+    qid = practice_tree["symbolic_id"]  # expected "2x + 2"
+
+    def submit(answer):
+        return client.post(
+            f"/practice/questions/{qid}/submit",
+            json={"answer": answer},
+            headers=headers,
+        ).json()["is_correct"]
+
+    assert submit("2x + 2") is True
+    assert submit("2*(x + 1)") is True  # different form, same function
+    assert submit("2 + 2x") is True  # reordered
+    assert submit("x + x + 2") is True
+
+    assert submit("2x + 3") is False  # plain wrong
+    assert submit("2x") is False
+    assert submit("=(x") is False  # unparseable → graded wrong, no error
+    assert submit(4) is False  # not even a string
+
+
+# -- submitting: multi_part ---------------------------------------------
+
+
+def test_multi_part_is_correct_only_when_every_part_is(
+    client, fake_email, db_session, practice_tree
+):
+    headers = _student(client, fake_email)
+    qid = practice_tree["multi_part_id"]
+    student_id = _student_id(db_session)
+
+    def submit(answer):
+        return client.post(
+            f"/practice/questions/{qid}/submit",
+            json={"answer": answer},
+            headers=headers,
+        ).json()
+
+    # Every part right.
+    good = submit({"slope": 3, "intercept": -4, "form": "3x - 4"})
+    assert good["is_correct"] is True
+
+    # One part wrong (the intercept) — the whole attempt is not correct.
+    partial = submit({"slope": 3, "intercept": 99, "form": "3x - 4"})
+    assert partial["is_correct"] is False
+
+    # A missing part grades that part false.
+    missing = submit({"slope": 3, "form": "3x - 4"})
+    assert missing["is_correct"] is False
+
+    rows = (
+        db_session.query(QuestionAttempt)
+        .filter_by(user_id=student_id, question_id=qid)
+        .order_by(QuestionAttempt.attempt_no)
+        .all()
+    )
+    assert [r.is_correct for r in rows] == [True, False, False]
+    # The per-part correctness vector is persisted, in part order.
+    assert [r.part_results for r in rows] == [
+        [True, True, True],
+        [True, False, True],
+        [True, False, True],
+    ]
+    assert [r.attempt_no for r in rows] == [1, 2, 3]
+
+
+def test_multi_part_payload_leaks_no_expected_answer(
+    client, fake_email, practice_tree
+):
+    headers = _student(client, fake_email)
+    qs = _start(client, headers).json()["questions"]
+    mp = next(q for q in qs if q["type"] == "multi_part")
+
+    assert mp["options"] is None
+    assert [p["id"] for p in mp["parts"]] == ["slope", "intercept", "form"]
+    for part in mp["parts"]:
+        # The student sees a part's id / type / prompt only — never its
+        # answer_schema, value, or expression.
+        assert set(part.keys()) == {"id", "type", "body", "options"}
+        assert "answer_schema" not in part
+    assert mp["parts"][0]["body"] == "What is the gradient?"
+
+    raw = _start(client, headers).text
+    for leak in ("\"value\"", "3*x - 4", "answer_schema", "tolerance"):
+        assert leak not in raw
+
+
+def test_multi_part_with_mcq_part_exposes_only_option_id_and_text(
+    client, fake_email, db_session, practice_tree
+):
+    """A `multi_part` whose part is an MCQ still runs the option chokepoint."""
+    integers = db_session.query(Topic).filter_by(slug="integers").one()
+    q = Question(
+        topic_id=integers.id,
+        type="multi_part",
+        difficulty="easy",
+        body="Two quick checks:",
+        answer_schema={
+            "parts": [
+                {
+                    "id": "pick",
+                    "type": "mcq_single",
+                    "body": "Which is negative?",
+                    "answer_schema": {
+                        "options": [
+                            {"id": "a", "text": "-2"},
+                            {"id": "b", "text": "5"},
+                        ],
+                        "correct_option": "a",
+                    },
+                },
+            ]
+        },
+        worked_solution="-2 < 0.",
+    )
+    db_session.add(q)
+    db_session.commit()
+
+    headers = _student(client, fake_email)
+    qs = _start(client, headers).json()["questions"]
+    mp = next(item for item in qs if item["id"] == q.id)
+    (pick,) = mp["parts"]
+    assert pick["options"] == [
+        {"id": "a", "text": "-2"},
+        {"id": "b", "text": "5"},
+    ]
+
+    graded = client.post(
+        f"/practice/questions/{q.id}/submit",
+        json={"answer": {"pick": "a"}},
+        headers=headers,
+    ).json()
+    assert graded["is_correct"] is True
+
+
 # -- persisted attempt rows --------------------------------------------------
 
 
@@ -342,7 +549,7 @@ def test_starting_a_topic_session_persists_it_with_a_frozen_question_set(
     )
     assert session.mode == PRACTICE_MODE_TOPIC
     assert session.scope_type == PRACTICE_SCOPE_TOPIC
-    assert session.question_count == 3
+    assert session.question_count == 5
     assert session.time_limit_seconds is None
     assert session.submitted_at is None
     assert session.score is None
@@ -354,11 +561,13 @@ def test_starting_a_topic_session_persists_it_with_a_frozen_question_set(
         .order_by(PracticeSessionQuestion.position)
         .all()
     )
-    assert [f.position for f in frozen] == [0, 1, 2]
+    assert [f.position for f in frozen] == [0, 1, 2, 3, 4]
     assert [f.question_id for f in frozen] == [
         practice_tree["single_id"],
         practice_tree["multi_id"],
         practice_tree["numeric_id"],
+        practice_tree["symbolic_id"],
+        practice_tree["multi_part_id"],
     ]
 
 

@@ -14,10 +14,12 @@ from app.cas.equivalence import (
     EquivalenceOutcome,
     EquivalenceResult,
     check_equivalence,
+    expression_parses,
 )
 
 __all__ = [
     "EquivalenceOutcome",
     "EquivalenceResult",
     "check_equivalence",
+    "expression_parses",
 ]

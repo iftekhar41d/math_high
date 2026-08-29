@@ -125,12 +125,17 @@ env-overridable; prod values come from `/etc/math-high-api.env`.
 
 ### Practice & grading (`app/practice/`)
 `Question.answer_schema` is JSON that always contains the correct answer, keyed
-by `Question.type` (`mcq_single` / `mcq_multi` / `numeric`). Two pure modules
-keep it server-side: `grading.py` (`is_correct(type, answer_schema, submitted)`
-— malformed answers grade false, unknown type raises; numeric compares within
-`tolerance` with a float-edge guard) and `payload.py` (`public_question()` — the
-**single chokepoint** that strips everything but body/difficulty/skill-tags and
-MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
+by `Question.type` (`mcq_single` / `mcq_multi` / `numeric` / `symbolic` /
+`multi_part`). Two pure modules keep it server-side: `grading.py`
+(`is_correct(type, answer_schema, submitted)` — malformed answers grade false,
+unknown type raises; numeric compares within `tolerance` with a float-edge
+guard; `symbolic` defers to `app/cas/` for equivalence, never a string match;
+`multi_part` bundles sub-questions each graded by the existing per-type grader
+and is correct only when every part is — `grade_parts()` returns the ordered
+per-part vector the router persists on `QuestionAttempt.part_results`) and
+`payload.py` (`public_question()` — the **single chokepoint** that strips
+everything but body/difficulty/skill-tags and MCQ option id+text, recursing into
+every `multi_part` part). `app/routers/practice.py` orchestrates: `POST
 /practice/sessions` persists a `PracticeSession` (`mode = topic`,
 `scope_type = topic`), freezes the Topic's ordered questions into
 `practice_session_questions`, and returns them via `public_question` (the
@@ -166,8 +171,10 @@ comparison on parsed input → `NOT_EQUIVALENT` — the module never raises on
 expression input. `domain` is caller config, so an unknown value **does** raise
 (like `grading`'s unknown question type). The result is truthy iff equivalent
 (`bool(check_equivalence(...))`), with `.parsed` separating "wrong" from
-"couldn't read it". Phase 2b's `symbolic` question grader and the MentisQ
-step-check are the callers.
+"couldn't read it". `expression_parses(text, *, variables, domain)` is the
+companion used at author time (`app/ingest/`) to reject a malformed `symbolic`
+answer before it reaches a grader. The `symbolic` question grader
+(`app/practice/grading.py`) and the MentisQ step-check are the callers.
 
 ### Analytics recompute (`app/analytics/`)
 An out-of-band job that turns stored `QuestionAttempt` / `TopicView` history

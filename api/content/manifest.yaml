@@ -539,6 +539,26 @@ year_levels:
                       correct_options: ['a', 'b', 'd']
                     worked_solution: '$2x + 3x = 5x$; five copies of $x$ is $5x$; $10x - 5x = 5x$. $5 + x$ has unlike terms and $5x^2$ carries a square.'
                     skill_tags: ['collecting like terms']
+                  - slug: simp-collect-symbolic
+                    type: symbolic
+                    difficulty: easy
+                    body: 'Write $6a + 2a - a$ as a single term.'
+                    answer_schema:
+                      expression: '7*a'
+                      variables: ['a']
+                      domain: real
+                    worked_solution: 'Add the coefficients of the like terms: $6 + 2 - 1 = 7$, giving $7a$.'
+                    skill_tags: ['collecting like terms']
+                  - slug: simp-expand-symbolic
+                    type: symbolic
+                    difficulty: medium
+                    body: 'Expand and simplify $3(x + 4)$. Any equivalent form is accepted.'
+                    answer_schema:
+                      expression: '3*x + 12'
+                      variables: ['x']
+                      domain: real
+                    worked_solution: 'Multiply each term in the brackets by 3: $3 \times x + 3 \times 4 = 3x + 12$.'
+                    skill_tags: ['expanding brackets']
 
               - slug: solving-simple-equations
                 title: "Solving Simple Equations"
@@ -581,6 +601,25 @@ year_levels:
                       correct_options: ['a', 'b', 'd']
                     worked_solution: 'Substitute $x = 4$: $4 + 3 = 7$, $2(4) = 8$, $3(4) - 2 = 10$ all hold. $x - 1 = 5$ needs $x = 6$; $\dfrac{x}{2} = 1$ needs $x = 2$.'
                     skill_tags: ['solving equations']
+                  - slug: eq-expand-and-solve
+                    type: multi_part
+                    difficulty: hard
+                    body: 'Work through the equation $2(x + 3) = 16$ step by step.'
+                    answer_schema:
+                      parts:
+                        - id: expand
+                          type: symbolic
+                          body: 'Expand the left-hand side, $2(x + 3)$.'
+                          answer_schema:
+                            expression: '2*x + 6'
+                            variables: ['x']
+                            domain: real
+                        - id: solve
+                          type: numeric
+                          body: 'Now solve the equation for $x$.'
+                          answer_schema: {value: 5, tolerance: 0}
+                    worked_solution: 'Expand: $2x + 6 = 16$. Subtract 6 from both sides: $2x = 10$. Divide by 2: $x = 5$.'
+                    skill_tags: ['solving equations', 'expanding brackets']
 
           # ---------------------------------------------------------------
           - slug: angle-relationships

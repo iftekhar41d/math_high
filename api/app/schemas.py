@@ -152,13 +152,26 @@ class QuestionOptionOut(BaseModel):
     text: str
 
 
+class PracticePartOut(BaseModel):
+    """One sub-question of a `multi_part` question, as the student sees it —
+    its stable `id`, `type`, optional prompt, and (for MCQ parts) options. No
+    part carries its correct answer."""
+
+    id: str
+    type: str
+    body: str | None
+    options: list[QuestionOptionOut] | None
+
+
 class PracticeQuestionOut(BaseModel):
     id: int
     type: str
     difficulty: str
     body: str
-    # Present for mcq_single / mcq_multi; null for numeric.
+    # Present for mcq_single / mcq_multi; null otherwise.
     options: list[QuestionOptionOut] | None
+    # Present for multi_part only; null otherwise.
+    parts: list[PracticePartOut] | None
 
 
 class PracticeSessionOut(BaseModel):

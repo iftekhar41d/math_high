@@ -22,6 +22,7 @@ from app.database import get_db
 from app.models import (
     PRACTICE_MODE_TOPIC,
     PRACTICE_SCOPE_TOPIC,
+    QUESTION_MULTI_PART,
     PracticeSession,
     PracticeSessionQuestion,
     Question,
@@ -30,7 +31,7 @@ from app.models import (
     User,
     is_content_admin,
 )
-from app.practice.grading import is_correct
+from app.practice.grading import grade_parts, is_correct
 from app.practice.payload import public_question
 from app.practice.settings import solution_reveal_after_attempts
 from app.schemas import (
@@ -150,6 +151,13 @@ def submit_answer(
 ) -> SubmitAnswerResponse:
     question = _practisable_question_or_404(db, question_id, user)
     correct = is_correct(question.type, question.answer_schema, body.answer)
+    # `multi_part` additionally records the per-part correctness vector
+    # (`is_correct` above already reduced it to the single "all parts" bool).
+    part_results: list[bool] | None = (
+        grade_parts(question.answer_schema, body.answer)
+        if question.type == QUESTION_MULTI_PART
+        else None
+    )
 
     graded_so_far = db.scalar(
         select(func.count())
@@ -169,6 +177,7 @@ def submit_answer(
             practice_session_id=_active_session_id(db, user, question.id),
             submitted_answer=body.answer,
             is_correct=correct,
+            part_results=part_results,
             time_taken=body.time_taken,
             attempt_no=attempt_no,
             created_at=clock.now(),

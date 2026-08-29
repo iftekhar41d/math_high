@@ -144,6 +144,41 @@ def _parse(text: str, symbols: dict[str, sp.Symbol]) -> sp.Expr:
     return expr
 
 
+def _build_symbols(
+    variables: Sequence[str] | None, domain: str
+) -> dict[str, sp.Symbol]:
+    """The named `variables` as SymPy symbols carrying `domain`'s assumptions.
+    An unknown `domain` raises `ValueError` (caller config, not student input).
+    """
+    if domain not in _DOMAIN_ASSUMPTIONS:
+        raise ValueError(f"unknown domain: {domain!r}")
+    assumptions = _DOMAIN_ASSUMPTIONS[domain]
+    return {
+        name: sp.Symbol(name, **assumptions)
+        for name in (variables or ())
+        if isinstance(name, str) and name
+    }
+
+
+def expression_parses(
+    text: str,
+    *,
+    variables: Sequence[str] | None = None,
+    domain: str = "real",
+) -> bool:
+    """True if `text` is a well-formed expression the equivalence check could
+    read — same parser, same `variables` / `domain` handling as
+    `check_equivalence`. For author-time validation of a stored `symbolic`
+    answer (`app/ingest/`), so a malformed expression is a manifest error, not a
+    grading-time surprise. An unknown `domain` raises, as it does there.
+    """
+    try:
+        _parse(text, _build_symbols(variables, domain))
+    except _ParseError:
+        return False
+    return True
+
+
 def _is_zero(expr: sp.Expr) -> bool:
     """True only when `expr` provably simplifies to 0."""
     simplified = sp.simplify(sp.expand(expr))
@@ -166,15 +201,7 @@ def check_equivalence(
     is real); any other name in either string is still parsed as a free symbol.
     `domain` is one of `"real"` (default), `"positive"`, `"complex"`.
     """
-    if domain not in _DOMAIN_ASSUMPTIONS:
-        raise ValueError(f"unknown domain: {domain!r}")
-
-    assumptions = _DOMAIN_ASSUMPTIONS[domain]
-    symbols = {
-        name: sp.Symbol(name, **assumptions)
-        for name in (variables or ())
-        if isinstance(name, str) and name
-    }
+    symbols = _build_symbols(variables, domain)
 
     try:
         parsed_a = _parse(expr_a, symbols)

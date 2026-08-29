@@ -9,10 +9,13 @@ from __future__ import annotations
 import math
 from typing import Any
 
+from app.cas import check_equivalence
 from app.models import (
     QUESTION_MCQ_MULTI,
     QUESTION_MCQ_SINGLE,
+    QUESTION_MULTI_PART,
     QUESTION_NUMERIC,
+    QUESTION_SYMBOLIC,
 )
 
 
@@ -48,7 +51,50 @@ def is_correct(
             difference, tolerance, rel_tol=1e-9, abs_tol=1e-12
         )
 
+    if question_type == QUESTION_SYMBOLIC:
+        if not isinstance(submitted, str):
+            return False
+        # `check_equivalence` never raises on expression input: an unparseable
+        # submission is falsy here, so it grades as incorrect. `domain` is
+        # author config — an unknown value raises, like an unknown type below.
+        return bool(
+            check_equivalence(
+                submitted,
+                str(answer_schema["expression"]),
+                variables=answer_schema.get("variables") or [],
+                domain=answer_schema.get("domain", "real"),
+            )
+        )
+
+    if question_type == QUESTION_MULTI_PART:
+        results = grade_parts(answer_schema, submitted)
+        return bool(results) and all(results)
+
     raise ValueError(f"unknown question type: {question_type!r}")
+
+
+def grade_parts(
+    answer_schema: dict[str, Any], submitted: Any
+) -> list[bool]:
+    """Grade every part of a `multi_part` submission on its own and return the
+    ordered correctness vector (one entry per part in `answer_schema` order).
+
+    `submitted` maps a part's `id` to that part's answer; anything else (a
+    non-mapping, a missing part, a malformed part answer) grades that part
+    false. The caller persists this vector on the `QuestionAttempt`;
+    `is_correct` reduces it with `all(...)`. An empty / absent part list yields
+    `[]`, which `is_correct` treats as not correct.
+    """
+    parts = answer_schema.get("parts")
+    if not isinstance(parts, list):
+        return []
+    answers = submitted if isinstance(submitted, dict) else {}
+    return [
+        is_correct(
+            part["type"], part["answer_schema"], answers.get(str(part["id"]))
+        )
+        for part in parts
+    ]
 
 
 def correct_answer_text(
@@ -79,5 +125,15 @@ def correct_answer_text(
         if tolerance:
             return f"{value} (± {tolerance})"
         return f"{value}"
+
+    if question_type == QUESTION_SYMBOLIC:
+        return str(answer_schema.get("expression", ""))
+
+    if question_type == QUESTION_MULTI_PART:
+        return "; ".join(
+            f"{part['id']}) "
+            f"{correct_answer_text(part['type'], part['answer_schema'])}"
+            for part in answer_schema.get("parts", [])
+        )
 
     raise ValueError(f"unknown question type: {question_type!r}")

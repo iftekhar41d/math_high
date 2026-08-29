@@ -25,7 +25,8 @@ year_levels:
                 prerequisites: []            # list of topic slugs
                 questions:
                   - slug: int-nl-order-ascending
-                    type: mcq_single         # mcq_single | mcq_multi | numeric
+                    # mcq_single | mcq_multi | numeric | symbolic | multi_part
+                    type: mcq_single
                     difficulty: easy         # easy | medium | hard
                     body: "Which list is in ascending order?"
                     answer_schema:
@@ -60,6 +61,7 @@ from typing import Any, Callable
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
+from app.cas import expression_parses
 from app.ingest.errors import ManifestError
 from app.models import (
     CONTENT_DRAFT,
@@ -69,7 +71,9 @@ from app.models import (
     DIFFICULTY_MEDIUM,
     QUESTION_MCQ_MULTI,
     QUESTION_MCQ_SINGLE,
+    QUESTION_MULTI_PART,
     QUESTION_NUMERIC,
+    QUESTION_SYMBOLIC,
 )
 
 # A loader turns a `lecture_file` reference into its Markdown body. The CLI
@@ -79,7 +83,16 @@ LectureLoader = Callable[[str], str]
 _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 _STATUSES = {CONTENT_DRAFT, CONTENT_PUBLISHED}
 _DIFFICULTIES = {DIFFICULTY_EASY, DIFFICULTY_MEDIUM, DIFFICULTY_HARD}
-_QUESTION_TYPES = {QUESTION_MCQ_SINGLE, QUESTION_MCQ_MULTI, QUESTION_NUMERIC}
+_QUESTION_TYPES = {
+    QUESTION_MCQ_SINGLE,
+    QUESTION_MCQ_MULTI,
+    QUESTION_NUMERIC,
+    QUESTION_SYMBOLIC,
+    QUESTION_MULTI_PART,
+}
+# A `multi_part` part is itself one of the other types — no nesting.
+_PART_TYPES = _QUESTION_TYPES - {QUESTION_MULTI_PART}
+_SYMBOLIC_DOMAINS = {"real", "positive", "complex"}
 
 
 def _check_slug(value: str) -> str:
@@ -184,6 +197,64 @@ def _check_answer_schema(qtype: str, schema: dict[str, Any]) -> None:
             raise ValueError("numeric 'tolerance' must be a number")
         if tolerance < 0:
             raise ValueError("numeric 'tolerance' must not be negative")
+    elif qtype == QUESTION_SYMBOLIC:
+        expression = schema.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            raise ValueError(
+                "symbolic answer_schema needs a non-empty 'expression'"
+            )
+        variables = schema.get("variables", [])
+        if not isinstance(variables, list) or any(
+            not isinstance(v, str) or not v.strip() for v in variables
+        ):
+            raise ValueError(
+                "symbolic 'variables' must be a list of variable names"
+            )
+        domain = schema.get("domain", "real")
+        if domain not in _SYMBOLIC_DOMAINS:
+            raise ValueError(
+                f"unknown symbolic domain {domain!r} "
+                f"(expected one of {sorted(_SYMBOLIC_DOMAINS)})"
+            )
+        if not expression_parses(
+            expression, variables=variables, domain=domain
+        ):
+            raise ValueError(
+                f"symbolic 'expression' {expression!r} is not a "
+                "well-formed expression"
+            )
+    elif qtype == QUESTION_MULTI_PART:
+        parts = schema.get("parts")
+        if not isinstance(parts, list) or not parts:
+            raise ValueError(
+                "multi_part answer_schema needs a non-empty 'parts' list"
+            )
+        part_ids: list[str] = []
+        for part in parts:
+            if not isinstance(part, dict):
+                raise ValueError("each multi_part part must be a mapping")
+            if "id" not in part:
+                raise ValueError("each multi_part part needs an 'id'")
+            part_ids.append(str(part["id"]))
+            body = part.get("body")
+            if not isinstance(body, str) or not body.strip():
+                raise ValueError(
+                    "each multi_part part needs a non-empty 'body' prompt"
+                )
+            ptype = part.get("type")
+            if ptype not in _PART_TYPES:
+                raise ValueError(
+                    f"unknown multi_part part type {ptype!r} "
+                    f"(expected one of {sorted(_PART_TYPES)})"
+                )
+            part_schema = part.get("answer_schema")
+            if not isinstance(part_schema, dict):
+                raise ValueError(
+                    "each multi_part part needs an 'answer_schema' mapping"
+                )
+            _check_answer_schema(ptype, part_schema)
+        if len(set(part_ids)) != len(part_ids):
+            raise ValueError("multi_part part ids must be unique")
 
 
 class TopicSpec(_Node):

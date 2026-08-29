@@ -325,6 +325,13 @@ class TopicView(Base):
 QUESTION_MCQ_SINGLE = "mcq_single"
 QUESTION_MCQ_MULTI = "mcq_multi"
 QUESTION_NUMERIC = "numeric"
+# `symbolic` grades any answer mathematically equivalent to a stored expression
+# (via `app/cas/`, never a string match). `multi_part` bundles sub-questions,
+# each of one of the *other* types, graded on its own; the attempt is correct
+# only when every part is. See `app/practice/grading.py` for the `answer_schema`
+# shapes.
+QUESTION_SYMBOLIC = "symbolic"
+QUESTION_MULTI_PART = "multi_part"
 
 DIFFICULTY_EASY = "easy"
 DIFFICULTY_MEDIUM = "medium"
@@ -375,7 +382,10 @@ class Question(Base):
     #   mcq_single: {"options": [{"id","text"}, ...], "correct_option": "b"}
     #   mcq_multi:  {"options": [...], "correct_options": ["a", "c"]}
     #   numeric:    {"value": 3.14, "tolerance": 0.01}
-    # The `correct_*` / `value` / `tolerance` keys never leave the server.
+    #   symbolic:   {"expression": "2x + 2", "variables": ["x"], "domain": "real"}
+    #   multi_part: {"parts": [{"id","type","body","answer_schema"}, ...]}
+    # The `correct_*` / `value` / `tolerance` / `expression` keys — and, for
+    # `multi_part`, every part's own answer data — never leave the server.
     answer_schema: Mapped[dict[str, Any]] = mapped_column(JSON)
     worked_solution: Mapped[str] = mapped_column(Text)
 
@@ -482,6 +492,11 @@ class QuestionAttempt(Base):
     # null on a solution-only marker row.
     submitted_answer: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # For a `multi_part` submission: the ordered per-part correctness vector
+    # (`[true, false, ...]`, one entry per part in `answer_schema` order).
+    # `is_correct` above is its `all(...)`. Null for every other question type
+    # and for solution-only marker rows.
+    part_results: Mapped[Any | None] = mapped_column(JSON, nullable=True)
     # Client-reported seconds on the question before this submission.
     time_taken: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 1 for the first graded submission, 2 for the next…; 0 for a marker row.

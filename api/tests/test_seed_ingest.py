@@ -322,6 +322,205 @@ def test_ingest_manifest_revalidates_a_hand_built_manifest(db_session):
     _assert_nothing_written(db_session)
 
 
+# -- symbolic & multi_part question types --------------------------------
+
+
+def _set_first_question(d: dict, question: dict) -> None:
+    topic = d["year_levels"][0]["subjects"][0]["units"][0]["topics"][0]
+    topic["questions"][0] = question
+
+
+_SYMBOLIC_Q = {
+    "slug": "int-symbolic",
+    "type": "symbolic",
+    "difficulty": "medium",
+    "body": "Expand $2(x + 1)$.",
+    "answer_schema": {
+        "expression": "2*x + 2",
+        "variables": ["x"],
+        "domain": "real",
+    },
+    "worked_solution": "Distribute: 2x + 2.",
+    "skill_tags": ["expanding brackets"],
+}
+
+_MULTI_PART_Q = {
+    "slug": "int-multi-part",
+    "type": "multi_part",
+    "difficulty": "hard",
+    "body": "For $y = 2x - 1$:",
+    "answer_schema": {
+        "parts": [
+            {
+                "id": "gradient",
+                "type": "numeric",
+                "body": "The gradient?",
+                "answer_schema": {"value": 2, "tolerance": 0},
+            },
+            {
+                "id": "expr",
+                "type": "symbolic",
+                "body": "Rewrite the right-hand side.",
+                "answer_schema": {"expression": "2*x - 1", "variables": ["x"]},
+            },
+        ]
+    },
+    "worked_solution": "Gradient 2; 2x - 1 is simplest.",
+    "skill_tags": ["linear relationships"],
+}
+
+
+def test_symbolic_and_multi_part_questions_ingest(db_session):
+    data = _manifest()
+    topic = data["year_levels"][0]["subjects"][0]["units"][0]["topics"][0]
+    topic["questions"].extend([dict(_SYMBOLIC_Q), dict(_MULTI_PART_Q)])
+
+    _ingest(db_session)  # unchanged fixture first, to prove additive
+    _ingest(db_session, data)
+
+    sym = db_session.query(Question).filter_by(slug="int-symbolic").one()
+    assert sym.type == "symbolic"
+    assert sym.answer_schema["expression"] == "2*x + 2"
+
+    mp = db_session.query(Question).filter_by(slug="int-multi-part").one()
+    assert mp.type == "multi_part"
+    assert [p["id"] for p in mp.answer_schema["parts"]] == ["gradient", "expr"]
+
+
+@pytest.mark.parametrize(
+    "question, needle",
+    [
+        pytest.param(
+            {**_SYMBOLIC_Q, "answer_schema": {"variables": ["x"]}},
+            "needs a non-empty 'expression'",
+            id="symbolic-missing-expression",
+        ),
+        pytest.param(
+            {
+                **_SYMBOLIC_Q,
+                "answer_schema": {"expression": "2x +* ", "variables": ["x"]},
+            },
+            "not a well-formed expression",
+            id="symbolic-unparseable-expression",
+        ),
+        pytest.param(
+            {
+                **_SYMBOLIC_Q,
+                "answer_schema": {
+                    "expression": "x",
+                    "variables": ["x"],
+                    "domain": "quaternion",
+                },
+            },
+            "unknown symbolic domain",
+            id="symbolic-bad-domain",
+        ),
+        pytest.param(
+            {**_MULTI_PART_Q, "answer_schema": {"parts": []}},
+            "non-empty 'parts' list",
+            id="multi-part-empty-parts",
+        ),
+        pytest.param(
+            {
+                **_MULTI_PART_Q,
+                "answer_schema": {
+                    "parts": [
+                        {"id": "a", "type": "numeric", "answer_schema": {}}
+                    ]
+                },
+            },
+            "needs a non-empty 'body' prompt",
+            id="multi-part-part-missing-body",
+        ),
+        pytest.param(
+            {
+                **_MULTI_PART_Q,
+                "answer_schema": {
+                    "parts": [
+                        {
+                            "id": "a",
+                            "type": "numeric",
+                            "body": "One?",
+                            "answer_schema": {"value": 1},
+                        },
+                        {
+                            "id": "a",
+                            "type": "numeric",
+                            "body": "Two?",
+                            "answer_schema": {"value": 2},
+                        },
+                    ]
+                },
+            },
+            "part ids must be unique",
+            id="multi-part-duplicate-ids",
+        ),
+        pytest.param(
+            {
+                **_MULTI_PART_Q,
+                "answer_schema": {
+                    "parts": [
+                        {
+                            "id": "a",
+                            "type": "essay",
+                            "body": "Discuss.",
+                            "answer_schema": {},
+                        }
+                    ]
+                },
+            },
+            "unknown multi_part part type",
+            id="multi-part-bad-part-type",
+        ),
+        pytest.param(
+            {
+                **_MULTI_PART_Q,
+                "answer_schema": {
+                    "parts": [
+                        {
+                            "id": "a",
+                            "type": "numeric",
+                            "body": "Value?",
+                            "answer_schema": {"tolerance": 0},
+                        }
+                    ]
+                },
+            },
+            "numeric answer_schema needs a 'value'",
+            id="multi-part-part-schema-does-not-grade",
+        ),
+        pytest.param(
+            {
+                **_MULTI_PART_Q,
+                "answer_schema": {
+                    "parts": [
+                        {
+                            "id": "a",
+                            "type": "multi_part",
+                            "body": "Nested?",
+                            "answer_schema": {"parts": []},
+                        }
+                    ]
+                },
+            },
+            "unknown multi_part part type",
+            id="multi-part-no-nesting",
+        ),
+    ],
+)
+def test_malformed_symbolic_or_multi_part_is_rejected_and_writes_nothing(
+    db_session, question, needle
+):
+    data = _manifest()
+    _set_first_question(data, question)
+
+    with pytest.raises(ManifestError) as excinfo:
+        _ingest(db_session, data)
+
+    assert needle in str(excinfo.value)
+    _assert_nothing_written(db_session)
+
+
 # -- helpers for the parametrized mutations ------------------------------
 
 
@@ -443,7 +642,13 @@ def test_shipped_pilot_manifest_loads_and_is_idempotent(db_session):
 
     # Every question type the pilot ships must be represented.
     types = {t for (t,) in db_session.query(Question.type).distinct()}
-    assert types == {"mcq_single", "mcq_multi", "numeric"}
+    assert types == {
+        "mcq_single",
+        "mcq_multi",
+        "numeric",
+        "symbolic",
+        "multi_part",
+    }
 
     second = load_and_ingest(db_session, _REPO_MANIFEST)
     assert second.total == first.total

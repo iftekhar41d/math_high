@@ -12,7 +12,12 @@ import dataclasses
 
 import pytest
 
-from app.cas import EquivalenceOutcome, EquivalenceResult, check_equivalence
+from app.cas import (
+    EquivalenceOutcome,
+    EquivalenceResult,
+    check_equivalence,
+    expression_parses,
+)
 
 
 # -- equivalent pairs -------------------------------------------------------
@@ -160,3 +165,23 @@ def test_result_is_frozen():
     assert isinstance(result, EquivalenceResult)
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.outcome = EquivalenceOutcome.NOT_EQUIVALENT  # type: ignore[misc]
+
+
+# -- expression_parses (author-time validation of a stored answer) ---------
+
+
+@pytest.mark.parametrize(
+    "text", ["2x + 2", "2*(x + 1)", "sqrt(x**2 + 1)", "3", "2*4 + 3"]
+)
+def test_expression_parses_true_for_well_formed_expressions(text):
+    assert expression_parses(text, variables=["x"]) is True
+
+
+@pytest.mark.parametrize("text", ["2x +* ", "", "x $ y", "((x)", None])
+def test_expression_parses_false_for_malformed_input(text):
+    assert expression_parses(text, variables=["x"]) is False  # type: ignore[arg-type]
+
+
+def test_expression_parses_unknown_domain_raises():
+    with pytest.raises(ValueError):
+        expression_parses("x", variables=["x"], domain="quaternion")
