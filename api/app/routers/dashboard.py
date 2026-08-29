@@ -2,18 +2,28 @@
 
 Reached in the browser under `/api/dashboard` (the proxy strips `/api`).
 
-One endpoint: `GET /dashboard` returns three views of the caller's own data,
-all computed on read — there is no snapshot table and no recompute job:
+One endpoint: `GET /dashboard` returns several views of the caller's own data.
+Some are computed live on read; three read the cached `PerformanceSnapshot`
+rows the out-of-band recompute job maintains (ticket 02):
 
 - ``recent_attempts`` — the student's graded attempts (``attempt_no > 0``),
   newest first, capped at ``RECENT_ATTEMPTS_LIMIT``. Solution-only marker rows
-  (``attempt_no = 0``) are excluded.
+  (``attempt_no = 0``) are excluded. Live.
 - ``topic_performance`` — one row per Topic the student has a graded attempt in;
   ``percent_correct`` is correct graded attempts / graded attempts x 100,
-  rounded to one decimal. Ordered by Topic title.
+  rounded to one decimal. Ordered by Topic title. Live, unchanged from Phase 1.
+- ``skill_mastery`` — one row per SkillTag the student has a snapshot for, its
+  cached mastery and an ``insufficient_data`` flag for the ``< 3`` sample case.
+  Cached.
+- ``topic_trends`` — the cached ``up`` / ``flat`` / ``down`` direction per Topic
+  the student has a snapshot for, in syllabus order. Cached.
+- ``recommendations`` — up to ``analytics.recommendation_count`` "study this
+  next" Topics below ``analytics.mastery_threshold`` whose prerequisites are in
+  order, weakest first; a prerequisite scoring lower still stands in for its
+  Topic (see ``app.analytics.recommendations``). Cached.
 - ``activity`` — counts over the last ``ACTIVITY_WINDOW_DAYS`` days, by the
   injected ``Clock``: ``TopicView`` rows, the distinct Topics behind them, and
-  the student's ``ok`` MentisQ user turns.
+  the student's ``ok`` MentisQ user turns. Live.
 
 Every call requires a verified caller.
 """
@@ -24,27 +34,40 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import case, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
+from app.analytics.recommendations import TopicNode, recommend
+from app.analytics.settings import AnalyticsSettings
 from app.auth.dependencies import require_verified_user
 from app.clock import Clock, get_clock
+from app.content_access import topic_is_published
 from app.database import get_db
 from app.models import (
     MENTISQ_ROLE_USER,
     MENTISQ_STATUS_OK,
+    SNAPSHOT_DIMENSION_SKILL_TAG,
+    SNAPSHOT_DIMENSION_TOPIC,
+    SNAPSHOT_MIN_CONFIDENT_SAMPLE,
     MentisQMessage,
     MentisQSession,
+    PerformanceSnapshot,
     Question,
     QuestionAttempt,
+    SkillTag,
+    Subject,
     Topic,
     TopicView,
+    Unit,
     User,
 )
 from app.schemas import (
     DashboardActivityOut,
     DashboardAttemptOut,
+    RecommendationOut,
+    SkillMasteryOut,
     StudentDashboardOut,
     TopicPerformanceOut,
+    TopicTrendOut,
 )
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -61,9 +84,14 @@ def get_dashboard(
     clock: Clock = Depends(get_clock),
     user: User = Depends(require_verified_user),
 ) -> StudentDashboardOut:
+    published = _published_topics(db)
+    topic_snapshots = _topic_snapshots(db, user.id)
     return StudentDashboardOut(
         recent_attempts=_recent_attempts(db, user.id),
         topic_performance=_topic_performance(db, user.id),
+        skill_mastery=_skill_mastery(db, user.id),
+        topic_trends=_topic_trends(published, topic_snapshots),
+        recommendations=_recommendations(db, published, topic_snapshots),
         activity=_activity(db, user.id, clock),
     )
 
@@ -142,6 +170,134 @@ def _topic_performance(
         )
         for r in rows
     ]
+
+
+def _published_topics(db: Session) -> list[Topic]:
+    """Every `published` Topic in syllabus order (Subject -> Unit -> Topic
+    `order`), lecture content and prerequisites eager-loaded. Visibility is the
+    shared `topic_is_published` rule (a student never sees a draft Topic, so it
+    never reaches a trend row or a recommendation); draft prerequisites are
+    dropped by the caller against this same published set."""
+    topics = db.scalars(
+        select(Topic)
+        .join(Unit, Unit.id == Topic.unit_id)
+        .join(Subject, Subject.id == Unit.subject_id)
+        .order_by(Subject.order, Unit.order, Topic.order)
+        .options(
+            selectinload(Topic.lecture_content),
+            selectinload(Topic.prerequisites),
+        )
+    )
+    # A prerequisite counts as visible iff it is itself in this published set —
+    # the caller filters `Topic.prerequisites` against it, so their lecture
+    # content need not be loaded here.
+    return [t for t in topics if topic_is_published(t)]
+
+
+def _topic_snapshots(
+    db: Session, user_id: int
+) -> dict[int, PerformanceSnapshot]:
+    rows = db.scalars(
+        select(PerformanceSnapshot).where(
+            PerformanceSnapshot.user_id == user_id,
+            PerformanceSnapshot.dimension == SNAPSHOT_DIMENSION_TOPIC,
+        )
+    )
+    return {row.dimension_id: row for row in rows}
+
+
+def _skill_mastery(db: Session, user_id: int) -> list[SkillMasteryOut]:
+    rows = db.execute(
+        select(
+            SkillTag.id,
+            SkillTag.name,
+            PerformanceSnapshot.mastery,
+            PerformanceSnapshot.sample_size,
+        )
+        .join(
+            PerformanceSnapshot,
+            PerformanceSnapshot.dimension_id == SkillTag.id,
+        )
+        .where(
+            PerformanceSnapshot.user_id == user_id,
+            PerformanceSnapshot.dimension == SNAPSHOT_DIMENSION_SKILL_TAG,
+        )
+        .order_by(SkillTag.name)
+    ).all()
+    return [
+        SkillMasteryOut(
+            skill_tag_id=r.id,
+            skill_tag_name=r.name,
+            mastery=r.mastery,
+            sample_size=r.sample_size,
+            insufficient_data=r.sample_size < SNAPSHOT_MIN_CONFIDENT_SAMPLE,
+        )
+        for r in rows
+    ]
+
+
+def _topic_trends(
+    published: list[Topic],
+    topic_snapshots: dict[int, PerformanceSnapshot],
+) -> list[TopicTrendOut]:
+    return [
+        TopicTrendOut(
+            topic_slug=t.slug,
+            topic_title=t.title,
+            trend=topic_snapshots[t.id].trend,
+        )
+        for t in published
+        if t.id in topic_snapshots
+    ]
+
+
+def _recommendations(
+    db: Session,
+    published: list[Topic],
+    topic_snapshots: dict[int, PerformanceSnapshot],
+) -> list[RecommendationOut]:
+    by_id = {t.id: t for t in published}
+    nodes = {
+        t.id: TopicNode(
+            topic_id=t.id,
+            order=i,
+            prerequisite_ids=tuple(
+                p.id for p in t.prerequisites if p.id in by_id
+            ),
+        )
+        for i, t in enumerate(published)
+    }
+    masteries = {
+        tid: snap.mastery for tid, snap in topic_snapshots.items()
+    }
+
+    settings = AnalyticsSettings(db)
+    picks = recommend(
+        masteries=masteries,
+        topics=nodes,
+        threshold=settings.mastery_threshold,
+        limit=settings.recommendation_count,
+    )
+
+    out: list[RecommendationOut] = []
+    for pick in picks:
+        topic = by_id[pick.topic_id]
+        for_topic = (
+            by_id[pick.for_topic_id]
+            if pick.for_topic_id is not None
+            else None
+        )
+        out.append(
+            RecommendationOut(
+                topic_slug=topic.slug,
+                topic_title=topic.title,
+                reason=pick.reason,
+                mastery=pick.mastery,
+                for_topic_slug=for_topic.slug if for_topic else None,
+                for_topic_title=for_topic.title if for_topic else None,
+            )
+        )
+    return out
 
 
 def _activity(

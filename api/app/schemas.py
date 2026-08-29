@@ -267,7 +267,48 @@ class DashboardActivityOut(BaseModel):
     mentisq_messages: int  # the student's `ok` MentisQ user turns
 
 
+class SkillMasteryOut(BaseModel):
+    """One SkillTag's cached mastery, from the last `PerformanceSnapshot`
+    recompute. `mastery` is a 0–1 recency-weighted proportion correct;
+    `insufficient_data` is set when fewer than three first attempts back it,
+    so the dashboard can render it as "not enough data yet"."""
+
+    skill_tag_id: int
+    skill_tag_name: str
+    mastery: float
+    sample_size: int
+    insufficient_data: bool
+
+
+class TopicTrendOut(BaseModel):
+    """One Topic's cached trend direction (`up` / `flat` / `down`), from the
+    last `PerformanceSnapshot` recompute."""
+
+    topic_slug: str
+    topic_title: str
+    trend: str
+
+
+class RecommendationOut(BaseModel):
+    """A "study this next" item. `reason` is `practice` (work the Topic itself)
+    or `revise_prerequisite` (a prerequisite scores lower — revise it first),
+    in which case `for_topic_*` names the weak Topic it unblocks. `mastery` is
+    the recommended Topic's own cached mastery."""
+
+    topic_slug: str
+    topic_title: str
+    reason: str
+    mastery: float
+    for_topic_slug: str | None = None
+    for_topic_title: str | None = None
+
+
 class StudentDashboardOut(BaseModel):
     recent_attempts: list[DashboardAttemptOut]
     topic_performance: list[TopicPerformanceOut]
+    # The three cached-snapshot views (ticket 02). Empty until the recompute
+    # job has run for the caller.
+    skill_mastery: list[SkillMasteryOut]
+    topic_trends: list[TopicTrendOut]
+    recommendations: list[RecommendationOut]
     activity: DashboardActivityOut

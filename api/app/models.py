@@ -511,6 +511,11 @@ TREND_UP = "up"
 TREND_FLAT = "flat"
 TREND_DOWN = "down"
 
+# Fewer contributing first attempts than this and a snapshot's `mastery` is too
+# thin to show as a number — the dashboard renders "not enough data yet"
+# instead. The recompute still writes the row (see `PerformanceSnapshot`).
+SNAPSHOT_MIN_CONFIDENT_SAMPLE = 3
+
 
 class PerformanceSnapshot(Base):
     """One student's cached mastery along one dimension — a Topic or a

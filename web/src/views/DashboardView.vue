@@ -1,8 +1,9 @@
 <script setup>
-// The student's recent activity: recent question attempts, percentage correct
-// per Topic, and how much they've used lectures and MentisQ lately. Everything
-// is computed on read by the API (`GET /api/dashboard`); this view only renders.
-import { onMounted, ref } from 'vue'
+// The student's dashboard: recent attempts and per-Topic percentage (computed
+// live by the API), plus three snapshot-backed views — a skill-tag strength
+// map, a per-Topic trend arrow, and "study this next" recommendations. All of
+// it arrives from `GET /api/dashboard`; this view only renders.
+import { computed, onMounted, ref } from 'vue'
 import * as api from '../api'
 
 const dash = ref(null)
@@ -30,6 +31,36 @@ const dateFmt = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 })
 const when = (iso) => dateFmt.format(new Date(iso))
+
+// -- snapshot views -------------------------------------------------------
+
+// Topic slug -> trend direction, so the per-Topic list can show an arrow.
+const trendBySlug = computed(() => {
+  const map = {}
+  for (const t of dash.value?.topic_trends ?? []) map[t.topic_slug] = t.trend
+  return map
+})
+
+const TREND_ARROW = { up: '↑', flat: '→', down: '↓' }
+const TREND_LABEL = { up: 'improving', flat: 'holding steady', down: 'slipping' }
+
+// Heatmap cell: a single-hue ramp from the accent colour (weak) to the dark
+// text colour (strong); the plain background for the "not enough data" state.
+// No red/green, no hex values outside the design tokens.
+function cellStyle(skill) {
+  if (skill.insufficient_data) {
+    return { background: 'var(--color-bg)', color: 'var(--color-text)' }
+  }
+  const pct = Math.round(skill.mastery * 100)
+  return {
+    background: `color-mix(in srgb, var(--color-text) ${pct}%, var(--color-accent))`,
+    color: pct >= 55 ? 'var(--color-bg)' : 'var(--color-text)',
+  }
+}
+
+// A recommendation points at a Topic to practise, or — when a prerequisite is
+// the weaker link — at that prerequisite to revise first.
+const recTo = (slug) => ({ name: 'learn-topic', params: { slug } })
 </script>
 
 <template>
@@ -59,6 +90,50 @@ const when = (iso) => dateFmt.format(new Date(iso))
         </li>
       </ul>
 
+      <!-- study this next -->
+      <template v-if="dash.recommendations.length">
+        <h2>Study this next</h2>
+        <ul class="recs">
+          <li
+            v-for="r in dash.recommendations"
+            :key="r.topic_slug + (r.for_topic_slug || '')"
+            class="rec"
+          >
+            <RouterLink :to="recTo(r.topic_slug)" class="rec-link">
+              {{ r.reason === 'revise_prerequisite' ? 'Revise' : 'Practise' }}
+              {{ r.topic_title }}
+            </RouterLink>
+            <span v-if="r.reason === 'revise_prerequisite'" class="rec-why">
+              to get ready for {{ r.for_topic_title }}
+            </span>
+            <span class="rec-mastery">{{ Math.round(r.mastery * 100) }}% so far</span>
+          </li>
+        </ul>
+      </template>
+
+      <!-- skill strength map -->
+      <template v-if="dash.skill_mastery.length">
+        <h2>Your skill map</h2>
+        <ul class="heatmap">
+          <li
+            v-for="s in dash.skill_mastery"
+            :key="s.skill_tag_id"
+            class="cell"
+            :class="{ 'cell-empty': s.insufficient_data }"
+            :style="cellStyle(s)"
+          >
+            <span class="cell-name">{{ s.skill_tag_name }}</span>
+            <span class="cell-value">
+              {{ s.insufficient_data ? 'not enough data' : Math.round(s.mastery * 100) + '%' }}
+            </span>
+          </li>
+        </ul>
+        <p class="muted heatmap-key">
+          Darker means stronger. Skills with fewer than three attempts show as
+          “not enough data yet”.
+        </p>
+      </template>
+
       <!-- per-Topic percentage correct -->
       <h2>How you're doing per topic</h2>
       <p v-if="dash.topic_performance.length === 0" class="muted">
@@ -72,6 +147,15 @@ const when = (iso) => dateFmt.format(new Date(iso))
             >
               {{ t.topic_title }}
             </RouterLink>
+            <span
+              v-if="trendBySlug[t.topic_slug]"
+              class="trend"
+              :data-dir="trendBySlug[t.topic_slug]"
+              :title="TREND_LABEL[trendBySlug[t.topic_slug]]"
+            >
+              {{ TREND_ARROW[trendBySlug[t.topic_slug]] }}
+              <span class="trend-label">{{ TREND_LABEL[trendBySlug[t.topic_slug]] }}</span>
+            </span>
             <span class="pct">{{ t.percent_correct }}%</span>
           </div>
           <div
@@ -166,6 +250,72 @@ ul {
   font-size: 0.85rem;
 }
 
+/* study this next */
+.recs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.rec {
+  border: 1px solid var(--color-accent);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.6rem;
+}
+.rec-link {
+  font-weight: 600;
+  text-decoration: none;
+}
+.rec-why {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+.rec-mastery {
+  margin-left: auto;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+/* skill strength map */
+.heatmap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+  gap: 0.5rem;
+}
+.cell {
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem;
+  min-height: 3.5rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 0.3rem;
+  border: 1px solid transparent;
+}
+.cell-empty {
+  border-color: var(--color-accent);
+  border-style: dashed;
+}
+.cell-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.cell-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  opacity: 0.95;
+}
+.heatmap-key {
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+}
+
 /* per-topic bars */
 .topics {
   display: flex;
@@ -179,13 +329,28 @@ ul {
 }
 .topic-head {
   display: flex;
-  justify-content: space-between;
   align-items: baseline;
-  gap: 0.75rem;
+  gap: 0.5rem 0.75rem;
+  flex-wrap: wrap;
 }
 .topic-head a {
   font-weight: 600;
   text-decoration: none;
+}
+.trend {
+  margin-left: auto;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+.trend[data-dir='down'] {
+  color: var(--color-text);
+}
+.trend-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.8;
+  margin-left: 0.15rem;
 }
 .pct {
   font-weight: 700;
