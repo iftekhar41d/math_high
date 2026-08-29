@@ -222,3 +222,50 @@ class MentisQSettingsUpdate(BaseModel):
     daily_message_cap: int | None = Field(default=None, ge=0)
     per_student_monthly_cap_usd: float | None = Field(default=None, ge=0)
     global_monthly_cap_usd: float | None = Field(default=None, ge=0)
+
+
+# -- student dashboard ---------------------------------------------------------
+
+
+class DashboardAttemptOut(BaseModel):
+    """One graded attempt in the student's recent history. Solution-only
+    marker rows (`attempt_no = 0`) are not included."""
+
+    id: int
+    question_id: int
+    topic_slug: str
+    topic_title: str
+    difficulty: str
+    is_correct: bool
+    attempt_no: int
+    time_taken: int | None
+    solution_viewed: bool
+    created_at: datetime
+
+
+class TopicPerformanceOut(BaseModel):
+    """Percentage correct in one Topic, computed on read from the student's
+    graded attempts (no `PerformanceSnapshot`, no recompute job)."""
+
+    topic_slug: str
+    topic_title: str
+    # Graded attempt rows in this Topic, and how many were correct.
+    attempts: int
+    correct: int
+    # correct / attempts x 100, rounded to one decimal place.
+    percent_correct: float
+
+
+class DashboardActivityOut(BaseModel):
+    """Activity counts over the last `window_days` days (by the injected Clock)."""
+
+    window_days: int
+    topic_views: int
+    topics_viewed: int  # distinct Topics opened
+    mentisq_messages: int  # the student's `ok` MentisQ user turns
+
+
+class StudentDashboardOut(BaseModel):
+    recent_attempts: list[DashboardAttemptOut]
+    topic_performance: list[TopicPerformanceOut]
+    activity: DashboardActivityOut

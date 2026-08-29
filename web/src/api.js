@@ -135,6 +135,9 @@ export const showSolution = (questionId) =>
     auth: true,
   })
 
+// -- dashboard --------------------------------------------------------------
+export const getDashboard = () => request('/dashboard', { auth: true })
+
 // -- MentisQ (AI tutor) --------------------------------------------------
 // `context` is one of { topic_slug } / { question_id } / {} (general question).
 export const askMentisQ = (content, context = {}) =>

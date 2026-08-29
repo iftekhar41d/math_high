@@ -44,6 +44,12 @@ const routes = [
     component: () => import('../views/ProfileView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/dashboard',
+    name: 'dashboard',
+    component: () => import('../views/DashboardView.vue'),
+    meta: { requiresAuth: true },
+  },
   // Course browsing: Year Level → Subject → Unit → Topic. One component drives
   // every list level (it keys off the route name); the lecture reader is its
   // own view.

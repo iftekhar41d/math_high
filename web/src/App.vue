@@ -23,6 +23,7 @@ async function signOut() {
       <span class="brand">MentisQ</span>
       <nav>
         <RouterLink to="/">Home</RouterLink>
+        <RouterLink v-if="isAuthenticated" to="/dashboard">Dashboard</RouterLink>
         <RouterLink v-if="isAuthenticated" to="/learn">Learn</RouterLink>
         <RouterLink v-if="isAuthenticated" to="/mentisq">Ask MentisQ</RouterLink>
         <RouterLink v-if="isSuperAdmin" to="/admin/mentisq">Settings</RouterLink>
