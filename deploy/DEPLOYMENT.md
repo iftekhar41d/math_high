@@ -140,10 +140,12 @@ What the script does, in order:
 5. `npm install && npm run build` in `web/` → `web/dist`.
 6. Writes `/etc/math-high-api.env` (mode 600) if absent, with a freshly
    generated `JWT_SECRET`, `PUBLIC_BASE_URL=https://$DOMAIN`,
-   `AUTH_COOKIE_SECURE=1`, and commented placeholders for `OPENROUTER_API_KEY`
-   and the `SMTP_*` vars. The systemd unit loads it via `EnvironmentFile=-`.
-   Re-running setup never overwrites an existing file — edit it in place to add
-   the email / LLM credentials, then `sudo systemctl restart math-high-api`.
+   `AUTH_COOKIE_SECURE=1`, and commented placeholders for `OPENROUTER_API_KEY` /
+   `OPENROUTER_MODEL` and the `SMTP_*` vars. The systemd unit loads it via
+   `EnvironmentFile=-`. Re-running setup never overwrites an existing file — edit
+   it in place to add the email / LLM credentials (MentisQ needs both
+   `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`), then
+   `sudo systemctl restart math-high-api`.
 7. Renders `math-high-api.service` → `/etc/systemd/system/`, `daemon-reload`,
    `enable --now`.
 8. Renders `nginx.conf` → `/etc/nginx/sites-available/math-high`, symlinks it into
@@ -360,7 +362,7 @@ pass `FORCE_NGINX=1`.
 | `APP_DIR/api/content/` | course manifest + lecture Markdown, **in git**; loaded by `python -m app.ingest` on deploy |
 | `APP_DIR/web/dist` | built frontend nginx serves |
 | `/etc/systemd/system/math-high-api.service` | rendered unit (real user/paths) |
-| `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, later `OPENROUTER_API_KEY` / `SMTP_*`); mode 600, **not** in git |
+| `/etc/math-high-api.env` | runtime secrets/config (`JWT_SECRET`, `PUBLIC_BASE_URL`, `OPENROUTER_API_KEY` / `OPENROUTER_MODEL`, `SMTP_*`); mode 600, **not** in git |
 | `/etc/nginx/sites-available/math-high` | rendered site (real domain, + certbot's 443 block) |
 | `/etc/nginx/sites-enabled/math-high` | symlink to the above |
 | `/etc/sudoers.d/math-high-deploy` | the two-command NOPASSWD rule for CI |

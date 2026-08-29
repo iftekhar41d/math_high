@@ -2,7 +2,8 @@
 
 Reached in the browser under `/api/admin/...` (the proxy strips `/api`).
 
-Phase 1 exposes one resource: the MentisQ settings (model name + usage caps).
+Phase 1 exposes one resource: the MentisQ usage caps. `GET` also echoes the
+active model name (environment-only, read-only); `PUT` edits only the caps.
 `require_super_admin` refuses every other caller with 403.
 """
 

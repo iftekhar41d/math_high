@@ -206,6 +206,8 @@ class MentisQReplyOut(BaseModel):
 
 
 class MentisQSettingsOut(BaseModel):
+    # Read-only here: the model id comes from `OPENROUTER_MODEL` in the
+    # environment, not the database. The caps below are runtime-editable.
     model_name: str
     daily_message_cap: int
     per_student_monthly_cap_usd: float
@@ -214,9 +216,9 @@ class MentisQSettingsOut(BaseModel):
 
 class MentisQSettingsUpdate(BaseModel):
     """Every field optional — only those present are written. Passing
-    `global_monthly_cap_usd: null` explicitly clears the global ceiling."""
+    `global_monthly_cap_usd: null` explicitly clears the global ceiling.
+    `model_name` is deliberately absent: it is environment-only."""
 
-    model_name: str | None = Field(default=None, min_length=1)
     daily_message_cap: int | None = Field(default=None, ge=0)
     per_student_monthly_cap_usd: float | None = Field(default=None, ge=0)
     global_monthly_cap_usd: float | None = Field(default=None, ge=0)

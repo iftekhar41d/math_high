@@ -12,10 +12,16 @@ Run everything from inside `api/` — the module path is `app.*` and the default
 cd api
 python -m venv .venv && .venv/Scripts/activate   # source .venv/bin/activate on macOS/Linux
 pip install -r requirements.txt -r requirements-dev.txt
+cp .env.example .env                              # then fill in OPENROUTER_API_KEY / OPENROUTER_MODEL
 alembic upgrade head                              # build the schema (creates data/app.db)
 python -m app.ingest                              # load pilot course content (idempotent)
-uvicorn app.main:app --reload                     # http://localhost:8000, docs at /docs
+uvicorn app.main:app --reload --env-file .env     # http://localhost:8000, docs at /docs
 ```
+
+`api/.env` is gitignored and loaded by uvicorn's `--env-file`. The only vars
+MentisQ needs are `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` (the model id,
+e.g. `openai/gpt-4o-mini`); everything else has a working default. In prod these
+live in `/etc/math-high-api.env`, loaded by the systemd unit.
 
 `python -m app.ingest [manifest]` loads the course tree, lecture Markdown, and
 questions from `api/content/` (default `content/manifest.yaml`) into the DB. It
@@ -93,7 +99,8 @@ with a real implementation and an in-memory test fake:
 `Clock` (`app/clock.py`, injectable `now()`), `EmailSender` (`app/email_sender.py`,
 outbound email; logs instead of sending when `SMTP_HOST` is unset), and
 `MentisQLLMClient` (`app/mentisq/llm_client.py`, the only code that talks to
-OpenRouter; 30s timeout; key from `OPENROUTER_API_KEY`, never the DB). Override
+OpenRouter; 30s timeout; **key and model name from the environment**
+(`OPENROUTER_API_KEY` / `OPENROUTER_MODEL`), never the DB). Override
 them with `app.dependency_overrides` in tests; don't reach past them.
 
 ### Media storage (`app/storage.py`)
@@ -133,16 +140,18 @@ Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 
 ### MentisQ guided exchange (`app/mentisq/`)
 The AI tutor, structured as a reusable core the thin router wraps:
-- `llm_client.py` — the OpenRouter boundary (30s timeout, key from
-  `OPENROUTER_API_KEY`, never the DB). Raises `LLMError` / `LLMTimeoutError`.
+- `llm_client.py` — the OpenRouter boundary (30s timeout; `OPENROUTER_API_KEY`
+  from the environment, never the DB). Raises `LLMError` / `LLMTimeoutError`.
 - `prompt.py` — the guided-mode system prompt is a **versioned template file**
   (`prompts/guided_v1.md`, `GUIDED_PROMPT_VERSION`): no final answer on the first
   reply, full worked solution only on explicit request, name the wrong step in
   shared work, stay in maths, render maths as LaTeX. When launched from a Topic
   or Question, that context (statement, correct answer, worked solution) is
   injected into the `{context}` slot and **never** returned verbatim.
-- `settings.py` — `MentisQSettings`: typed accessors over the `Setting` key/value
-  table with in-code defaults for `model_name`, `daily_message_cap`,
+- `settings.py` — the model name is environment-only (`OPENROUTER_MODEL`, via the
+  `model_name()` helper; not stored, not editable at runtime). `MentisQSettings`
+  is the runtime-editable caps: typed accessors over the `Setting` key/value
+  table with in-code defaults for `daily_message_cap`,
   `per_student_monthly_cap_usd` (50), `global_monthly_cap_usd` (nullable).
 - `service.py` — `MentisQService.post_message`: before any provider call, checks
   the student's `ok` messages-today against `daily_message_cap`, their
@@ -160,8 +169,9 @@ The AI tutor, structured as a reusable core the thin router wraps:
 `app/routers/mentisq.py` (`POST /mentisq/messages`) resolves the optional
 Topic/Question context and maps the result to `{session_id, reply, status}`.
 `app/routers/admin.py` (`GET`/`PUT /admin/mentisq-settings`) is gated by
-`require_super_admin` (`ROLE_SUPER_ADMIN`) — every other caller gets 403; a
-`null` `global_monthly_cap_usd` in the PUT body clears the ceiling.
+`require_super_admin` (`ROLE_SUPER_ADMIN`) — every other caller gets 403. `GET`
+also echoes the active `model_name` read-only; `PUT` edits only the caps (a
+`null` `global_monthly_cap_usd` clears the ceiling).
 
 ### Content seeding (`app/ingest/`)
 Course content is authored as repo files under `api/content/`: `manifest.yaml`

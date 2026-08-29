@@ -1,6 +1,7 @@
 <script setup>
-// SuperAdmin screen: read and update the MentisQ model name and the usage caps.
-// Non-SuperAdmin callers get a 403 from the API, shown here as a plain notice.
+// SuperAdmin screen: view the active MentisQ model (environment-only, read-only)
+// and edit the usage caps. Non-SuperAdmin callers get a 403 from the API, shown
+// here as a plain notice.
 import { onMounted, reactive, ref } from 'vue'
 import * as api from '../api'
 
@@ -10,15 +11,15 @@ const error = ref('')
 const status = ref('')
 const saving = ref(false)
 
+const modelName = ref('')
 const form = reactive({
-  model_name: '',
   daily_message_cap: 0,
   per_student_monthly_cap_usd: 0,
   global_monthly_cap_usd: '', // '' = no global ceiling
 })
 
 function fill(settings) {
-  form.model_name = settings.model_name
+  modelName.value = settings.model_name
   form.daily_message_cap = settings.daily_message_cap
   form.per_student_monthly_cap_usd = settings.per_student_monthly_cap_usd
   form.global_monthly_cap_usd =
@@ -42,7 +43,6 @@ async function save() {
   error.value = ''
   try {
     const payload = {
-      model_name: form.model_name,
       daily_message_cap: Number(form.daily_message_cap),
       per_student_monthly_cap_usd: Number(form.per_student_monthly_cap_usd),
       global_monthly_cap_usd:
@@ -72,9 +72,12 @@ async function save() {
 
     <form v-else @submit.prevent="save">
       <div class="form-field">
-        <label for="model">Model name</label>
-        <input id="model" v-model="form.model_name" type="text" required />
-        <p class="hint">OpenRouter model id, e.g. <code>openai/gpt-4o-mini</code>.</p>
+        <label for="model">Active model</label>
+        <input id="model" :value="modelName" type="text" disabled />
+        <p class="hint">
+          Set by <code>OPENROUTER_MODEL</code> in the service environment; change
+          it there and redeploy.
+        </p>
       </div>
 
       <div class="form-field">

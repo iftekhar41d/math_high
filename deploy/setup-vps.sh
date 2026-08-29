@@ -98,6 +98,7 @@ JWT_SECRET=$JWT_SECRET_VALUE
 PUBLIC_BASE_URL=https://$DOMAIN
 AUTH_COOKIE_SECURE=1
 # OPENROUTER_API_KEY=      # MentisQ tutor; without it MentisQ calls fail to the fallback
+# OPENROUTER_MODEL=        # MentisQ model id, e.g. openai/gpt-4o-mini (defaults to that if unset)
 # SMTP_HOST=               # ticket 02 email delivery (logs instead until set)
 # SMTP_PORT=587
 # SMTP_USERNAME=

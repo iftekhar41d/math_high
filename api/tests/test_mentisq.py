@@ -380,12 +380,10 @@ def test_settings_get_returns_defaults_then_reflects_updates(
     _set_settings(
         client,
         admin,
-        model_name="anthropic/claude-3.5-haiku",
         daily_message_cap=10,
         global_monthly_cap_usd=25.5,
     )
     got = client.get("/admin/mentisq-settings", headers=admin).json()
-    assert got["model_name"] == "anthropic/claude-3.5-haiku"
     assert got["daily_message_cap"] == 10
     assert got["per_student_monthly_cap_usd"] == 50.0  # untouched
     assert got["global_monthly_cap_usd"] == 25.5
@@ -416,12 +414,26 @@ def test_mentisq_endpoint_requires_authentication(client, mentisq_tree):
     assert client.post("/mentisq/messages", json={"content": "hi"}).status_code == 401
 
 
-def test_model_name_setting_is_used_for_the_provider_call(
-    client, fake_email, fake_llm, db_session, mentisq_tree
+def test_model_name_comes_from_the_environment(
+    client, fake_email, fake_llm, monkeypatch, mentisq_tree
 ):
-    admin = _super_admin(client, fake_email, db_session)
-    _set_settings(client, admin, model_name="test/model-x")
+    monkeypatch.setenv("OPENROUTER_MODEL", "test/model-x")
     student = _student(client, fake_email)
 
     _ask(client, student)
     assert fake_llm.calls[-1]["model"] == "test/model-x"
+
+
+def test_model_name_is_not_editable_via_the_settings_api(
+    client, fake_email, db_session
+):
+    admin = _super_admin(client, fake_email, db_session)
+    # An unknown field is ignored by the schema; the model stays the default.
+    resp = client.put(
+        "/admin/mentisq-settings",
+        json={"model_name": "hacker/model", "daily_message_cap": 5},
+        headers=admin,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["model_name"] == "openai/gpt-4o-mini"
+    assert resp.json()["daily_message_cap"] == 5

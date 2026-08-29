@@ -1,24 +1,34 @@
-"""Typed accessors over the `Setting` key/value table for the `SuperAdmin`-
-managed MentisQ configuration: the model name and the usage caps.
+"""MentisQ configuration.
 
-Every value has an in-code default here; a `Setting` row only ever overrides
-one. `global_monthly_cap_usd` is genuinely optional — its default is `None`
-(no global ceiling) and clearing the row restores that.
+Two sources, on purpose:
+
+- **The OpenRouter model name comes only from the environment**
+  (`OPENROUTER_MODEL`), alongside the API key (`OPENROUTER_API_KEY`, read in
+  `llm_client.py`). Neither is ever stored in the database. Change the model by
+  editing the env file and restarting the service.
+- **The usage caps are `SuperAdmin`-editable at runtime** and live in the
+  `Setting` key/value table: `daily_message_cap`,
+  `per_student_monthly_cap_usd`, and the nullable `global_monthly_cap_usd`
+  (default `None` = no global ceiling; clearing the row restores that). Each has
+  an in-code default below; a `Setting` row only ever overrides one.
 """
 
 from __future__ import annotations
 
-from sqlalchemy import select
+import os
+
 from sqlalchemy.orm import Session
 
 from app.models import Setting
 
-SETTING_MODEL_NAME = "mentisq.model_name"
 SETTING_DAILY_MESSAGE_CAP = "mentisq.daily_message_cap"
 SETTING_PER_STUDENT_MONTHLY_CAP_USD = "mentisq.per_student_monthly_cap_usd"
 SETTING_GLOBAL_MONTHLY_CAP_USD = "mentisq.global_monthly_cap_usd"
 
+# Env var carrying the OpenRouter model id (e.g. "openai/gpt-4o-mini").
+MODEL_NAME_ENV_VAR = "OPENROUTER_MODEL"
 DEFAULT_MODEL_NAME = "openai/gpt-4o-mini"
+
 DEFAULT_DAILY_MESSAGE_CAP = 30
 DEFAULT_PER_STUDENT_MONTHLY_CAP_USD = 50.0
 DEFAULT_GLOBAL_MONTHLY_CAP_USD: float | None = None
@@ -26,7 +36,17 @@ DEFAULT_GLOBAL_MONTHLY_CAP_USD: float | None = None
 _UNSET = object()
 
 
+def model_name() -> str:
+    """The OpenRouter model id, from `OPENROUTER_MODEL` (falling back to a sane
+    default so local dev and tests work without it set)."""
+    return os.getenv(MODEL_NAME_ENV_VAR) or DEFAULT_MODEL_NAME
+
+
 class MentisQSettings:
+    """The runtime-editable caps. Reads/writes `Setting` rows; the caller
+    commits. `model_name` is exposed read-only for display — it is not stored
+    here and cannot be updated through this class."""
+
     def __init__(self, db: Session) -> None:
         self.db = db
 
@@ -51,7 +71,7 @@ class MentisQSettings:
 
     @property
     def model_name(self) -> str:
-        return self._raw(SETTING_MODEL_NAME) or DEFAULT_MODEL_NAME
+        return model_name()
 
     @property
     def daily_message_cap(self) -> int:
@@ -83,7 +103,6 @@ class MentisQSettings:
     def update(
         self,
         *,
-        model_name=_UNSET,
         daily_message_cap=_UNSET,
         per_student_monthly_cap_usd=_UNSET,
         global_monthly_cap_usd=_UNSET,
@@ -91,8 +110,6 @@ class MentisQSettings:
         """Persist only the fields actually passed. `global_monthly_cap_usd`
         accepts `None` explicitly — it clears the override. The caller commits.
         """
-        if model_name is not _UNSET:
-            self._write(SETTING_MODEL_NAME, str(model_name))
         if daily_message_cap is not _UNSET:
             self._write(
                 SETTING_DAILY_MESSAGE_CAP, str(int(daily_message_cap))
