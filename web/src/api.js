@@ -113,3 +113,24 @@ export const getTopics = (unitId) =>
 
 export const getTopic = (slug) =>
   request(`/content/topics/${encodeURIComponent(slug)}`, { auth: true })
+
+// -- practice -----------------------------------------------------------
+export const startPractice = (topicSlug) =>
+  request('/practice/sessions', {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ topic_slug: topicSlug }),
+  })
+
+export const submitAnswer = (questionId, answer, timeTaken) =>
+  request(`/practice/questions/${questionId}/submit`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ answer, time_taken: timeTaken }),
+  })
+
+export const showSolution = (questionId) =>
+  request(`/practice/questions/${questionId}/show-solution`, {
+    method: 'POST',
+    auth: true,
+  })

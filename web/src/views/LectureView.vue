@@ -73,6 +73,13 @@ const isDraft = computed(
 
       <div v-if="bodyHtml" class="lecture-body" v-html="bodyHtml" />
       <p v-else>This topic has no lecture content yet.</p>
+
+      <RouterLink
+        class="btn practice-cta"
+        :to="{ name: 'learn-practice', params: { slug: topic.slug } }"
+      >
+        Practise this topic →
+      </RouterLink>
     </template>
   </article>
 </template>
@@ -126,5 +133,10 @@ h1 {
 .prereqs ul {
   margin: 0;
   padding-left: 1.1rem;
+}
+.practice-cta {
+  display: inline-block;
+  margin-top: 2rem;
+  text-decoration: none;
 }
 </style>

@@ -16,9 +16,9 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_verified_user
 from app.clock import Clock, get_clock
+from app.content_access import topic_is_published as _is_published
 from app.database import get_db
 from app.models import (
-    CONTENT_PUBLISHED,
     Subject,
     Topic,
     TopicView,
@@ -50,11 +50,6 @@ def _get_or_404(db: Session, model, pk: int, what: str):
     if obj is None:
         raise _not_found(what)
     return obj
-
-
-def _is_published(topic: Topic) -> bool:
-    lc = topic.lecture_content
-    return lc is not None and lc.status == CONTENT_PUBLISHED
 
 
 @router.get("/year-levels", response_model=list[YearLevelOut])

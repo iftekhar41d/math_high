@@ -8,14 +8,18 @@ Ticket 02 adds the auth tables: `User` plus the short-lived token tables
 `LoginAttempt` for login rate limiting. Ticket 03 adds the content tree
 (`YearLevel` → `Subject` → `Unit` → `Topic`), the `topic_prerequisites`
 association table, `LectureContent`, and the `TopicView` analytics event. The
-practice/MentisQ tables arrive with their own tickets.
+Ticket 04 adds the practice tables: `Question` (with its `answer_schema` JSON),
+`SkillTag` + the `question_skill_tags` association table, and `QuestionAttempt`.
+The MentisQ tables arrive with their own ticket.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     ForeignKey,
@@ -280,6 +284,102 @@ class TopicView(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now(), index=True
+    )
+
+
+# -- practice & grading --------------------------------------------------
+#
+# A Topic's practice questions. Grading is entirely server-side: `answer_schema`
+# holds the correct answer keyed by `type`, and is NEVER serialised to a student
+# — `app/practice/payload.py` is the single chokepoint that builds the public
+# view (body, difficulty, and MCQ option text only).
+
+QUESTION_MCQ_SINGLE = "mcq_single"
+QUESTION_MCQ_MULTI = "mcq_multi"
+QUESTION_NUMERIC = "numeric"
+
+DIFFICULTY_EASY = "easy"
+DIFFICULTY_MEDIUM = "medium"
+DIFFICULTY_HARD = "hard"
+
+
+# Many-to-many Question ↔ SkillTag, for per-skill analytics aggregation. Plain
+# Core table; the seed ingest (ticket 05) appends through `Question.skill_tags`.
+question_skill_tags = Table(
+    "question_skill_tags",
+    Base.metadata,
+    Column(
+        "question_id",
+        ForeignKey("questions.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "skill_tag_id",
+        ForeignKey("skill_tags.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class SkillTag(Base):
+    __tablename__ = "skill_tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String, unique=True, index=True)
+
+
+class Question(Base):
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
+    # One of QUESTION_* above.
+    type: Mapped[str] = mapped_column(String)
+    # One of DIFFICULTY_* above; shown to the student so they know what to expect.
+    difficulty: Mapped[str] = mapped_column(String)
+    body: Mapped[str] = mapped_column(Text)
+    # Discriminated by `type`:
+    #   mcq_single: {"options": [{"id","text"}, ...], "correct_option": "b"}
+    #   mcq_multi:  {"options": [...], "correct_options": ["a", "c"]}
+    #   numeric:    {"value": 3.14, "tolerance": 0.01}
+    # The `correct_*` / `value` / `tolerance` keys never leave the server.
+    answer_schema: Mapped[dict[str, Any]] = mapped_column(JSON)
+    worked_solution: Mapped[str] = mapped_column(Text)
+
+    topic: Mapped[Topic] = relationship()
+    skill_tags: Mapped[list[SkillTag]] = relationship(
+        secondary=question_skill_tags,
+        order_by="SkillTag.name",
+    )
+
+
+class QuestionAttempt(Base):
+    """One row per graded submission. A bare "show solution" with no prior
+    submission also writes a marker row (`attempt_no = 0`, `submitted_answer`
+    and `is_correct` null) so the view is still recorded. The student dashboard
+    (ticket 07) reads these back.
+    """
+
+    __tablename__ = "question_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    question_id: Mapped[int] = mapped_column(
+        ForeignKey("questions.id"), index=True
+    )
+    # The student's answer as submitted (option id, list of ids, or number);
+    # null on a solution-only marker row.
+    submitted_answer: Mapped[Any | None] = mapped_column(JSON, nullable=True)
+    is_correct: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Client-reported seconds on the question before this submission.
+    time_taken: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 1 for the first graded submission, 2 for the next…; 0 for a marker row.
+    attempt_no: Mapped[int] = mapped_column(Integer, default=0)
+    hints_used: Mapped[int] = mapped_column(Integer, default=0)
+    mentisq_used: Mapped[bool] = mapped_column(Boolean, default=False)
+    solution_viewed: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
     )

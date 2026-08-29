@@ -110,6 +110,21 @@ refresh token. Protect an endpoint with `Depends(require_verified_user)` from
 `AUTH_COOKIE_SECURE`, `PUBLIC_BASE_URL`) live in `app/auth/config.py`, all
 env-overridable; prod values come from `/etc/math-high-api.env`.
 
+### Practice & grading (`app/practice/`)
+`Question.answer_schema` is JSON that always contains the correct answer, keyed
+by `Question.type` (`mcq_single` / `mcq_multi` / `numeric`). Two pure modules
+keep it server-side: `grading.py` (`is_correct(type, answer_schema, submitted)`
+— malformed answers grade false, unknown type raises; numeric compares within
+`tolerance` with a float-edge guard) and `payload.py` (`public_question()` — the
+**single chokepoint** that strips everything but body/difficulty/skill-tags and
+MCQ option id+text). `app/routers/practice.py` orchestrates: `POST
+/practice/sessions` returns a Topic's ordered questions via `public_question`;
+`POST /practice/questions/{id}/submit` grades and writes a `QuestionAttempt`
+(`attempt_no` counts prior graded rows + 1); `POST
+/practice/questions/{id}/show-solution` sets `solution_viewed` on the latest
+attempt, or writes a marker row (`attempt_no = 0`) if there's no submission yet.
+Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
+
 ### Adding an endpoint
 1. Model in `app/models.py`, then `alembic revision --autogenerate -m "..."` and
    review the migration. Pydantic schemas in `app/schemas.py` (use

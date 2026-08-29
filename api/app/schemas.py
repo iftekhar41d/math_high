@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -136,3 +136,50 @@ class TopicDetail(BaseModel):
     # Absent only for a draft Topic with no content yet (ContentAdmin preview).
     lecture_content: LectureContentOut | None
     prerequisites: list[TopicRef]
+
+
+# -- practice & grading -------------------------------------------------------
+
+
+class StartPracticeRequest(BaseModel):
+    topic_slug: str = Field(min_length=1)
+
+
+class QuestionOptionOut(BaseModel):
+    """An MCQ choice as the student sees it — no hint which one is correct."""
+
+    id: str
+    text: str
+
+
+class PracticeQuestionOut(BaseModel):
+    id: int
+    type: str
+    difficulty: str
+    body: str
+    # Present for mcq_single / mcq_multi; null for numeric.
+    options: list[QuestionOptionOut] | None
+
+
+class PracticeSessionOut(BaseModel):
+    topic: TopicRef
+    questions: list[PracticeQuestionOut]
+
+
+class SubmitAnswerRequest(BaseModel):
+    # An option id (mcq_single), a list of option ids (mcq_multi), or a number
+    # (numeric). Graded server-side; shape is validated by the grader, not here.
+    answer: Any = None
+    # Client-reported seconds spent before submitting.
+    time_taken: int | None = Field(default=None, ge=0)
+
+
+class SubmitAnswerResponse(BaseModel):
+    is_correct: bool
+    attempt_no: int
+    # Returned from the first submission on, regardless of correctness.
+    worked_solution: str
+
+
+class SolutionResponse(BaseModel):
+    worked_solution: str

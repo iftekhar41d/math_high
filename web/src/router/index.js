@@ -77,6 +77,12 @@ const routes = [
     component: () => import('../views/LectureView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/learn/topics/:slug/practice',
+    name: 'learn-practice',
+    component: () => import('../views/PracticeView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({
