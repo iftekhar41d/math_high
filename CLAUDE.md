@@ -150,6 +150,25 @@ Draft-topic questions are 404 to students, visible to a `ContentAdmin`.
 default 1 — from the first submission on); the explicit `show-solution` request
 is never gated by it.
 
+### CAS equivalence (`app/cas/`)
+A pure module in the mould of `grading.py` — no DB, no clock, no network, no
+injectable seam (SymPy is deterministic and offline; `sympy` is the one new
+`requirements.txt` entry — Manim is **not** here, it lives only in
+`tools/anim/`). `check_equivalence(expr_a, expr_b, *, variables=[...],
+domain="real"|"positive"|"complex")` parses two expression **strings** and
+returns an `EquivalenceResult`: an `outcome` of `EquivalenceOutcome.{EQUIVALENT,
+NOT_EQUIVALENT, PARSE_ERROR}` plus a short `detail`. Parsing accepts student
+notation (`2(x+1)`, `^` for power) and screens out non-mathematical syntax (a
+char whitelist, no `__`, a length cap) before SymPy runs — but junk that still
+tokenises (`x y z` → `x*y*z`) lands on `NOT_EQUIVALENT`, not `PARSE_ERROR`.
+Either side unparseable → `PARSE_ERROR`; a SymPy blow-up or an undecidable
+comparison on parsed input → `NOT_EQUIVALENT` — the module never raises on
+expression input. `domain` is caller config, so an unknown value **does** raise
+(like `grading`'s unknown question type). The result is truthy iff equivalent
+(`bool(check_equivalence(...))`), with `.parsed` separating "wrong" from
+"couldn't read it". Phase 2b's `symbolic` question grader and the MentisQ
+step-check are the callers.
+
 ### Analytics recompute (`app/analytics/`)
 An out-of-band job that turns stored `QuestionAttempt` / `TopicView` history
 into cached `PerformanceSnapshot` rows (one per (user, `dimension`,
