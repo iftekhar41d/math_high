@@ -417,11 +417,13 @@ class QuestionAttempt(Base):
 # -- MentisQ (the AI tutor) --------------------------------------------------
 #
 # A `MentisQSession` is one tutoring conversation belonging to a student,
-# optionally scoped to the Topic or Question it was launched from. Phase 1 UX is
-# a single exchange (one user turn + one assistant turn) and `mode` is always
-# `guided`, but the schema keeps a full message log from day one. Each
-# `MentisQMessage` carries the token usage and USD cost reported by the
-# provider — that is what the daily-message and monthly-spend caps read back.
+# optionally scoped to the Topic or Question it was launched from. It is
+# multi-turn: the student keeps replying within the session and the model is
+# re-sent the recent history. `mode` is always `guided`; `prompt_version` records
+# which `guided_v*` template the session ran under. `helpful` is the student's
+# optional 👍/👎 on the whole conversation. Each `MentisQMessage` carries the
+# token usage and USD cost reported by the provider — that is what the
+# daily-message and monthly-spend caps read back.
 
 MENTISQ_MODE_GUIDED = "guided"
 
@@ -448,6 +450,15 @@ class MentisQSession(Base):
         ForeignKey("questions.id"), nullable=True
     )
     mode: Mapped[str] = mapped_column(String, default=MENTISQ_MODE_GUIDED)
+    # The `guided_v*` template this session ran under. The service always sets
+    # this explicitly from `app.mentisq.prompt.GUIDED_PROMPT_VERSION`; this
+    # literal only backs direct construction (tests) and must be bumped with it.
+    prompt_version: Mapped[str] = mapped_column(
+        String, default="guided_v2", server_default="guided_v1"
+    )
+    # The student's optional verdict on the conversation: `True` = helped,
+    # `False` = didn't, `None` = not rated.
+    helpful: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
     )

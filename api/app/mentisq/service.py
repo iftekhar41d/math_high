@@ -1,12 +1,17 @@
 """The MentisQ guided-exchange core.
 
-`post_message` is the whole contract: check the student's usage against the
-caps, and if they are under, call the provider once, persist the user and
-assistant turns with the provider's usage (prompt tokens on the user turn,
-completion tokens + USD cost on the assistant turn — so `SUM(cost_usd)` counts
-each exchange once), and hand back the reply. On a provider timeout / outage /
-bad response the student gets a fixed fallback, both turns are stored `failed`,
-and the exchange is metered against nothing.
+`post_message` is the whole contract: pick the conversation to append to (a
+follow-up continues its session; a different Topic/Question context, or an
+explicit `new_chat`, starts a fresh one), check the student's usage against the
+caps, and if they are under, call the provider once with the system prompt plus
+the last `HISTORY_MAX_MESSAGES` non-failed turns, persist the user and assistant
+turns with the provider's usage (prompt tokens on the user turn, completion
+tokens + USD cost on the assistant turn — so `SUM(cost_usd)` counts each exchange
+once), and hand back the reply. On a provider timeout / outage / bad response the
+student gets a fixed fallback, both turns are stored `failed`, and the exchange
+is metered against nothing.
+
+`set_helpful` records the student's 👍/👎 on one of their own sessions.
 
 Time is read only through the injected `Clock`. The provider is reached only
 through the injected `MentisQLLMClient`. Nothing here touches HTTP.
@@ -22,7 +27,12 @@ from sqlalchemy.orm import Session
 
 from app.clock import Clock
 from app.mentisq.llm_client import LLMError, MentisQLLMClient
-from app.mentisq.prompt import PromptContext, build_prompt
+from app.mentisq.prompt import (
+    GUIDED_PROMPT_VERSION,
+    HISTORY_MAX_MESSAGES,
+    PromptContext,
+    build_messages,
+)
 from app.mentisq.settings import MentisQSettings
 from app.models import (
     MENTISQ_MODE_GUIDED,
@@ -78,9 +88,11 @@ class MentisQService:
         self,
         db: Session,
         clock: Clock,
-        llm: MentisQLLMClient,
         settings: MentisQSettings,
+        llm: MentisQLLMClient | None = None,
     ) -> None:
+        # `llm` is only needed by `post_message`; the read-only views
+        # (`latest_general_session`, `set_helpful`) construct without it.
         self.db = db
         self.clock = clock
         self.llm = llm
@@ -135,6 +147,94 @@ class MentisQService:
             return LIMIT_REACHED_GLOBAL
         return None
 
+    # -- session selection -----------------------------------------------
+
+    def _new_session(
+        self,
+        user_id: int,
+        now: datetime,
+        context_topic_id: int | None,
+        context_question_id: int | None,
+    ) -> MentisQSession:
+        session = MentisQSession(
+            user_id=user_id,
+            context_topic_id=context_topic_id,
+            context_question_id=context_question_id,
+            mode=MENTISQ_MODE_GUIDED,
+            prompt_version=GUIDED_PROMPT_VERSION,
+            created_at=now,
+        )
+        self.db.add(session)
+        self.db.flush()
+        return session
+
+    def _pick_session(
+        self,
+        *,
+        user: User,
+        now: datetime,
+        context_topic_id: int | None,
+        context_question_id: int | None,
+        session_id: int | None,
+        new_chat: bool,
+    ) -> MentisQSession:
+        """Continue an existing conversation, or open a fresh one.
+
+        A `new_chat` request always opens a fresh session. Otherwise a
+        `session_id` continues that session *only if its context still matches*
+        the request — launching "Ask MentisQ" from a different Topic/Question
+        starts a new session. With no `session_id` and no context anchor (the
+        general entry point) the student's most recent general session is
+        resumed.
+        """
+        if not new_chat:
+            if session_id is not None:
+                existing = self.db.get(MentisQSession, session_id)
+                if (
+                    existing is not None
+                    and existing.user_id == user.id
+                    and existing.context_topic_id == context_topic_id
+                    and existing.context_question_id == context_question_id
+                ):
+                    return existing
+            elif context_topic_id is None and context_question_id is None:
+                recent = self.latest_general_session(user)
+                if recent is not None:
+                    return recent
+
+        return self._new_session(
+            user.id, now, context_topic_id, context_question_id
+        )
+
+    def _session_has_reply(self, session_id: int) -> bool:
+        """Whether the session already has a completed assistant turn — i.e. the
+        next turn is not the first. Independent of the replay window."""
+        return bool(
+            self.db.scalar(
+                select(MentisQMessage.id)
+                .where(
+                    MentisQMessage.session_id == session_id,
+                    MentisQMessage.role == MENTISQ_ROLE_ASSISTANT,
+                    MentisQMessage.status == MENTISQ_STATUS_OK,
+                )
+                .limit(1)
+            )
+        )
+
+    def _history_for(self, session_id: int) -> list[MentisQMessage]:
+        """The trailing `ok` turns replayed to the model: `failed` turns are
+        left in the DB but never sent, and only the last `HISTORY_MAX_MESSAGES`
+        messages are kept (older turns are dropped, not summarised)."""
+        rows = self.db.scalars(
+            select(MentisQMessage)
+            .where(
+                MentisQMessage.session_id == session_id,
+                MentisQMessage.status == MENTISQ_STATUS_OK,
+            )
+            .order_by(MentisQMessage.id)
+        ).all()
+        return list(rows[-HISTORY_MAX_MESSAGES:])
+
     # -- the exchange -------------------------------------------------------
 
     def post_message(
@@ -145,6 +245,8 @@ class MentisQService:
         context: PromptContext | None = None,
         context_topic_id: int | None = None,
         context_question_id: int | None = None,
+        session_id: int | None = None,
+        new_chat: bool = False,
     ) -> MentisQReply:
         now = self.clock.now()
 
@@ -153,20 +255,24 @@ class MentisQService:
             # Nothing is written and the provider is not called.
             return MentisQReply(None, capped, STATUS_LIMIT_REACHED)
 
-        session = MentisQSession(
-            user_id=user.id,
+        session = self._pick_session(
+            user=user,
+            now=now,
             context_topic_id=context_topic_id,
             context_question_id=context_question_id,
-            mode=MENTISQ_MODE_GUIDED,
-            created_at=now,
+            session_id=session_id,
+            new_chat=new_chat,
         )
-        self.db.add(session)
-        self.db.flush()
 
-        prompt = build_prompt(content, context)
+        messages = build_messages(
+            content,
+            context,
+            self._history_for(session.id),
+            is_continuation=self._session_has_reply(session.id),
+        )
         try:
             completion = self.llm.complete(
-                prompt=prompt, model=self.settings.model_name
+                messages=messages, model=self.settings.model_name
             )
         except LLMError:
             self._persist_pair(
@@ -227,3 +333,32 @@ class MentisQService:
             )
         )
         self.db.commit()
+
+    # -- the student's verdict ------------------------------------------
+
+    def set_helpful(
+        self, *, user: User, session_id: int, helpful: bool | None
+    ) -> MentisQSession | None:
+        """Record 👍/👎 (or clear it with `None`) on one of the student's own
+        sessions. Returns the session, or `None` if it doesn't exist or isn't
+        theirs."""
+        session = self.db.get(MentisQSession, session_id)
+        if session is None or session.user_id != user.id:
+            return None
+        session.helpful = helpful
+        self.db.commit()
+        return session
+
+    def latest_general_session(self, user: User) -> MentisQSession | None:
+        """The general (no Topic/Question) session the general entry point would
+        continue, or `None`."""
+        return self.db.scalar(
+            select(MentisQSession)
+            .where(
+                MentisQSession.user_id == user.id,
+                MentisQSession.context_topic_id.is_(None),
+                MentisQSession.context_question_id.is_(None),
+            )
+            .order_by(MentisQSession.id.desc())
+            .limit(1)
+        )

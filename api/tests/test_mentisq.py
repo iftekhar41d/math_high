@@ -12,6 +12,7 @@ from datetime import timedelta
 
 import pytest
 
+from app.mentisq.prompt import GUIDED_PROMPT_VERSION, HISTORY_MAX_MESSAGES
 from app.mentisq.service import (
     FALLBACK_MESSAGE,
     LIMIT_REACHED_DAILY,
@@ -372,7 +373,7 @@ def test_settings_get_returns_defaults_then_reflects_updates(
     got = client.get("/admin/mentisq-settings", headers=admin).json()
     assert got == {
         "model_name": "openai/gpt-4o-mini",
-        "daily_message_cap": 30,
+        "daily_message_cap": 2000,
         "per_student_monthly_cap_usd": 50.0,
         "global_monthly_cap_usd": None,
     }
@@ -437,3 +438,260 @@ def test_model_name_is_not_editable_via_the_settings_api(
     assert resp.status_code == 200
     assert resp.json()["model_name"] == "openai/gpt-4o-mini"
     assert resp.json()["daily_message_cap"] == 5
+
+
+# -- multi-turn conversations -------------------------------------------
+
+
+def _roles_and_text(messages):
+    return [(m["role"], m["content"]) for m in messages]
+
+
+def test_followup_continues_the_session_and_replays_history(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+
+    first = _ask(client, headers, content="How do I start?")
+    sid = first.json()["session_id"]
+
+    second = _ask(
+        client, headers, content="Is the answer 2?", session_id=sid
+    )
+    assert second.status_code == 200
+    assert second.json()["session_id"] == sid  # same conversation
+
+    # All four turns are in the one session.
+    msgs = (
+        db_session.query(MentisQMessage)
+        .filter_by(session_id=sid)
+        .order_by(MentisQMessage.id)
+        .all()
+    )
+    assert [m.role for m in msgs] == ["user", "assistant", "user", "assistant"]
+
+    # The 2nd provider call carried the system prompt + the first exchange +
+    # the new user turn.
+    sent = _roles_and_text(fake_llm.calls[1]["messages"])
+    assert sent[0][0] == "system"
+    assert sent[1:] == [
+        ("user", "How do I start?"),
+        ("assistant", "What have you tried so far?"),
+        ("user", "Is the answer 2?"),
+    ]
+
+
+def test_only_the_last_history_window_is_replayed(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="turn 0").json()["session_id"]
+    # Enough exchanges that the window fills and the earliest turns fall off.
+    for i in range(1, 9):
+        _ask(client, headers, content=f"turn {i}", session_id=sid)
+
+    sent = fake_llm.calls[-1]["messages"]
+    assert sent[0]["role"] == "system"
+    history = sent[1:]  # everything after the system message
+    assert len(history) == HISTORY_MAX_MESSAGES + 1  # window + the new turn
+    # The oldest turns were dropped, not summarised.
+    assert all("turn 0" not in m["content"] for m in history)
+    assert history[-1]["content"] == "turn 8"
+
+
+def test_failed_turns_are_excluded_from_history_but_kept_in_the_db(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="first ok").json()["session_id"]
+
+    fake_llm.mode = "timeout"
+    _ask(client, headers, content="this one fails", session_id=sid)
+
+    fake_llm.mode = "ok"
+    _ask(client, headers, content="back again", session_id=sid)
+
+    # The failed pair is still on the record…
+    statuses = [
+        m.status
+        for m in db_session.query(MentisQMessage)
+        .filter_by(session_id=sid)
+        .order_by(MentisQMessage.id)
+        .all()
+    ]
+    assert statuses.count("failed") == 2
+
+    # …but nothing failed was replayed to the model on the recovering call.
+    sent_text = fake_llm.calls[-1]["prompt"]
+    assert "this one fails" not in sent_text
+    assert FALLBACK_MESSAGE not in sent_text
+    assert "first ok" in sent_text  # the ok turn survived
+
+
+def test_a_different_context_starts_a_new_session(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    qid = mentisq_tree["question_id"]
+
+    first = _ask(client, headers, content="stuck", question_id=qid)
+    sid = first.json()["session_id"]
+
+    # Same session_id, but now anchored to a Topic instead of the Question.
+    moved = _ask(
+        client,
+        headers,
+        content="new topic now",
+        topic_slug="integers",
+        session_id=sid,
+    )
+    new_sid = moved.json()["session_id"]
+    assert new_sid != sid
+
+    new_session = db_session.get(MentisQSession, new_sid)
+    assert new_session.context_question_id is None
+    assert new_session.context_topic_id is not None
+
+
+def test_general_entry_resumes_the_latest_general_session_unless_new_chat(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+
+    a = _ask(client, headers, content="one").json()["session_id"]
+    # No session_id: the general entry point picks up the most recent chat.
+    b = _ask(client, headers, content="two").json()["session_id"]
+    assert b == a
+
+    # Explicitly starting a new chat forces a fresh session.
+    c = _ask(client, headers, content="three", new_chat=True).json()[
+        "session_id"
+    ]
+    assert c != a
+
+
+def test_new_session_records_the_current_guided_prompt_version(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="hi").json()["session_id"]
+
+    session = db_session.get(MentisQSession, sid)
+    assert session.prompt_version == GUIDED_PROMPT_VERSION == "guided_v2"
+    # The v2 system prompt keys the "no final answer" rule to the first turn.
+    assert "FIRST assistant turn" in fake_llm.calls[0]["messages"][0]["content"]
+
+
+def test_first_turn_marker_flips_to_continuation_on_followups(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="hi").json()["session_id"]
+    _ask(client, headers, content="and then?", session_id=sid)
+
+    assert "FIRST assistant turn" in fake_llm.calls[0]["messages"][0]["content"]
+    # The follow-up call tells the model it is no longer the first turn — the
+    # guarantee doesn't rely on the model counting replayed history.
+    assert (
+        "NOT the first assistant turn"
+        in fake_llm.calls[1]["messages"][0]["content"]
+    )
+
+
+def test_messages_rejects_a_session_id_owned_by_another_student(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    owner = _student(client, fake_email)
+    sid = _ask(client, owner, content="mine").json()["session_id"]
+    calls = len(fake_llm.calls)
+
+    other_creds = register_and_verify(
+        client, fake_email, email="thief@example.com", name="Thief"
+    )
+    other = {
+        "Authorization": f"Bearer {login(client, other_creds).json()['access_token']}"
+    }
+    resp = _ask(client, other, content="not mine", session_id=sid)
+    assert resp.status_code == 404
+    # No new session, no provider call for the rejected request.
+    assert len(fake_llm.calls) == calls
+    assert (
+        db_session.query(MentisQMessage).filter_by(session_id=sid).count() == 2
+    )
+
+
+def test_student_can_mark_a_session_helpful_or_not(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="hi").json()["session_id"]
+
+    up = client.post(
+        f"/mentisq/sessions/{sid}/helpful",
+        json={"helpful": True},
+        headers=headers,
+    )
+    assert up.status_code == 200
+    assert up.json()["helpful"] is True
+    db_session.expire_all()
+    assert db_session.get(MentisQSession, sid).helpful is True
+
+    down = client.post(
+        f"/mentisq/sessions/{sid}/helpful",
+        json={"helpful": False},
+        headers=headers,
+    )
+    assert down.json()["helpful"] is False
+    db_session.expire_all()
+    assert db_session.get(MentisQSession, sid).helpful is False
+
+
+def test_helpful_rejects_another_students_session(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    owner = _student(client, fake_email)
+    sid = _ask(client, owner, content="hi").json()["session_id"]
+
+    other_creds = register_and_verify(
+        client, fake_email, email="nosy@example.com", name="Nosy"
+    )
+    other = {
+        "Authorization": f"Bearer {login(client, other_creds).json()['access_token']}"
+    }
+    resp = client.post(
+        f"/mentisq/sessions/{sid}/helpful",
+        json={"helpful": True},
+        headers=other,
+    )
+    assert resp.status_code == 404
+    assert (
+        client.post(
+            "/mentisq/sessions/99999/helpful",
+            json={"helpful": True},
+            headers=owner,
+        ).status_code
+        == 404
+    )
+
+
+def test_current_session_hands_back_the_running_general_exchange(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+
+    assert client.get("/mentisq/sessions/current", headers=headers).json() is None
+
+    sid = _ask(client, headers, content="how do I start?").json()["session_id"]
+    _ask(client, headers, content="like this?", session_id=sid)
+
+    got = client.get("/mentisq/sessions/current", headers=headers).json()
+    assert got["session_id"] == sid
+    assert got["topic_slug"] is None
+    assert got["question_id"] is None
+    assert got["helpful"] is None
+    assert _roles_and_text(got["turns"]) == [
+        ("user", "how do I start?"),
+        ("assistant", "What have you tried so far?"),
+        ("user", "like this?"),
+        ("assistant", "What have you tried so far?"),
+    ]

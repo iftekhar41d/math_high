@@ -140,11 +140,26 @@ export const getDashboard = () => request('/dashboard', { auth: true })
 
 // -- MentisQ (AI tutor) --------------------------------------------------
 // `context` is one of { topic_slug } / { question_id } / {} (general question).
-export const askMentisQ = (content, context = {}) =>
+// `opts` carries the multi-turn bits: { session_id } to continue a conversation,
+// { new_chat: true } to force a fresh one.
+export const askMentisQ = (content, context = {}, opts = {}) =>
   request('/mentisq/messages', {
     method: 'POST',
     auth: true,
-    body: JSON.stringify({ content, ...context }),
+    body: JSON.stringify({ content, ...context, ...opts }),
+  })
+
+// The general conversation the next general message would continue (with its
+// turns), or null.
+export const getCurrentMentisQSession = () =>
+  request('/mentisq/sessions/current', { auth: true })
+
+// Record 👍/👎 on a conversation. `helpful` is true | false | null (clear).
+export const rateMentisQSession = (sessionId, helpful) =>
+  request(`/mentisq/sessions/${sessionId}/helpful`, {
+    method: 'POST',
+    auth: true,
+    body: JSON.stringify({ helpful }),
   })
 
 // -- admin: MentisQ settings (SuperAdmin only) -------------------------

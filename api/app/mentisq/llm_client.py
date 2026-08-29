@@ -1,8 +1,9 @@
 """The `MentisQLLMClient` boundary — the only code that talks to OpenRouter.
 
-It takes a rendered prompt plus a model name and returns the completion text and
-token/cost usage. It enforces a hard 30s timeout. The API key is read from the
-`OPENROUTER_API_KEY` environment variable, **never** from the database.
+It takes an OpenAI-style message list plus a model name and returns the
+completion text and token/cost usage. It enforces a hard 30s timeout. The API key
+is read from the `OPENROUTER_API_KEY` environment variable, **never** from the
+database.
 
 On timeout, provider outage, or a bad response it raises `LLMTimeoutError` /
 `LLMError`; the caller (ticket 06) turns those into the fixed fallback message and
@@ -39,7 +40,9 @@ class LLMTimeoutError(LLMError):
 class MentisQLLMClient:
     """Interface. The real client calls OpenRouter; the test fake is canned."""
 
-    def complete(self, *, prompt: str, model: str) -> LLMCompletion:  # pragma: no cover - abstract
+    def complete(
+        self, *, messages: list[dict[str, str]], model: str
+    ) -> LLMCompletion:  # pragma: no cover - abstract
         raise NotImplementedError
 
 
@@ -48,10 +51,12 @@ class OpenRouterLLMClient(MentisQLLMClient):
         self._api_key = api_key
         self._url = url
 
-    def complete(self, *, prompt: str, model: str) -> LLMCompletion:
+    def complete(
+        self, *, messages: list[dict[str, str]], model: str
+    ) -> LLMCompletion:
         payload = {
             "model": model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             # Ask OpenRouter to include the resolved USD cost in the usage block.
             "usage": {"include": True},
         }

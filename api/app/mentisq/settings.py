@@ -29,7 +29,10 @@ SETTING_GLOBAL_MONTHLY_CAP_USD = "mentisq.global_monthly_cap_usd"
 MODEL_NAME_ENV_VAR = "OPENROUTER_MODEL"
 DEFAULT_MODEL_NAME = "openai/gpt-4o-mini"
 
-DEFAULT_DAILY_MESSAGE_CAP = 30
+# A runaway-loop backstop, not a product limit — multi-turn sessions make a low
+# per-day ceiling too easy to hit in normal use. The monthly USD cap
+# (`per_student_monthly_cap_usd`) is the real spend guard.
+DEFAULT_DAILY_MESSAGE_CAP = 2000
 DEFAULT_PER_STUDENT_MONTHLY_CAP_USD = 50.0
 DEFAULT_GLOBAL_MONTHLY_CAP_USD: float | None = None
 

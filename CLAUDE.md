@@ -166,35 +166,55 @@ path writes there. Reusable core, thin CLI:
   workflow runs one `--full` backfill after `alembic upgrade head`.
 
 ### MentisQ guided exchange (`app/mentisq/`)
-The AI tutor, structured as a reusable core the thin router wraps:
+The AI tutor — a **multi-turn** guided conversation, structured as a reusable
+core the thin router wraps:
 - `llm_client.py` — the OpenRouter boundary (30s timeout; `OPENROUTER_API_KEY`
-  from the environment, never the DB). Raises `LLMError` / `LLMTimeoutError`.
+  from the environment, never the DB). `complete(messages=[...], model=...)`
+  takes an OpenAI-style message list. Raises `LLMError` / `LLMTimeoutError`.
 - `prompt.py` — the guided-mode system prompt is a **versioned template file**
-  (`prompts/guided_v1.md`, `GUIDED_PROMPT_VERSION`): no final answer on the first
-  reply, full worked solution only on explicit request, name the wrong step in
-  shared work, stay in maths, render maths as LaTeX. When launched from a Topic
-  or Question, that context (statement, correct answer, worked solution) is
-  injected into the `{context}` slot and **never** returned verbatim.
+  (`prompts/guided_v2.md`, `GUIDED_PROMPT_VERSION`): no final answer on the first
+  assistant turn *of the session*, full worked solution only on explicit request,
+  name the wrong step in shared work, stay in maths, render maths as LaTeX. When
+  launched from a Topic or Question, that context (statement, correct answer,
+  worked solution) is injected into the `{context}` slot and **never** returned
+  verbatim. `build_messages(user_message, context, history, *, is_continuation)`
+  assembles the wire list: `system` message (ending with a plain statement of
+  whether this is the first assistant turn, so the first-reply rule survives
+  once early turns leave the window), then `history` (already trimmed /
+  failed-filtered by the caller), then the new `user` turn. `HISTORY_MAX_MESSAGES`
+  (12) is the replay window — older turns are dropped, not summarised.
 - `settings.py` — the model name is environment-only (`OPENROUTER_MODEL`, via the
   `model_name()` helper; not stored, not editable at runtime). `MentisQSettings`
   is the runtime-editable caps: typed accessors over the `Setting` key/value
-  table with in-code defaults for `daily_message_cap`,
-  `per_student_monthly_cap_usd` (50), `global_monthly_cap_usd` (nullable).
-- `service.py` — `MentisQService.post_message`: before any provider call, checks
-  the student's `ok` messages-today against `daily_message_cap`, their
-  month-to-date `cost_usd` sum against `per_student_monthly_cap_usd`, and the
-  global month sum against `global_monthly_cap_usd` if set; over any → a fixed
-  `limit_reached` reply, no LLM call, nothing persisted. A successful exchange
+  table with in-code defaults for `daily_message_cap` (2000 — a runaway-loop
+  backstop, not a product limit), `per_student_monthly_cap_usd` (50 — the real
+  spend guard), `global_monthly_cap_usd` (nullable).
+- `service.py` — `MentisQService.post_message`: picks the session
+  (`_pick_session` — a matching `session_id` continues that conversation; a
+  changed Topic/Question context or `new_chat=True` opens a fresh
+  `MentisQSession` stamped with `GUIDED_PROMPT_VERSION`; no `session_id` + no
+  context anchor resumes the student's most recent general session). Then, before
+  any provider call, checks the student's `ok` messages-today against
+  `daily_message_cap`, their month-to-date `cost_usd` sum against
+  `per_student_monthly_cap_usd`, and the global month sum against
+  `global_monthly_cap_usd` if set; over any → a fixed `limit_reached` reply, no
+  LLM call, nothing persisted. Otherwise it sends the system prompt plus the last
+  `HISTORY_MAX_MESSAGES` non-`failed` turns of the session. A successful exchange
   persists the user + assistant `MentisQMessage`, splitting the provider usage
   across the pair (prompt tokens on the user turn, completion tokens + `cost_usd`
   on the assistant turn) so `SUM(cost_usd)` counts each exchange once. A timeout
   / outage / bad response returns `FALLBACK_MESSAGE`, stores both turns
   `status = failed`, and is metered against nothing (the daily-cap count filters
-  to `role = user AND status = ok`). Time comes only from the injected `Clock`
-  (UTC day / month windows).
+  to `role = user AND status = ok`). `set_helpful` records the student's 👍/👎
+  (`mentisq_sessions.helpful`, nullable) on one of their own sessions. Time comes
+  only from the injected `Clock` (UTC day / month windows).
 
-`app/routers/mentisq.py` (`POST /mentisq/messages`) resolves the optional
-Topic/Question context and maps the result to `{session_id, reply, status}`.
+`app/routers/mentisq.py`: `POST /mentisq/messages` resolves the optional
+Topic/Question context, passes `session_id` / `new_chat` through, and maps the
+result to `{session_id, reply, status}`; `GET /mentisq/sessions/current` returns
+the general conversation the next message would continue (with its non-`failed`
+turns) for the SPA to hydrate; `POST /mentisq/sessions/{id}/helpful` sets the
+rating (404 if the session isn't the caller's).
 `app/routers/admin.py` (`GET`/`PUT /admin/mentisq-settings`) is gated by
 `require_super_admin` (`ROLE_SUPER_ADMIN`) — every other caller gets 403. `GET`
 also echoes the active `model_name` read-only; `PUT` edits only the caps (a

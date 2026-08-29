@@ -64,8 +64,19 @@ class FakeMentisQLLMClient(MentisQLLMClient):
         )
         self.calls: list[dict] = []
 
-    def complete(self, *, prompt: str, model: str) -> LLMCompletion:
-        self.calls.append({"prompt": prompt, "model": model})
+    def complete(
+        self, *, messages: list[dict[str, str]], model: str
+    ) -> LLMCompletion:
+        # `messages` is the full OpenAI-style list (system + history + new user
+        # turn). `prompt` is a flattened join kept for assertions that only care
+        # that some text reached the provider.
+        self.calls.append(
+            {
+                "messages": messages,
+                "prompt": "\n".join(m["content"] for m in messages),
+                "model": model,
+            }
+        )
         if self.mode == "timeout":
             raise LLMTimeoutError("fake timeout")
         if self.mode == "error":

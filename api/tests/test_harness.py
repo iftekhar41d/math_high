@@ -19,25 +19,32 @@ def test_fake_email_records_sent_messages(fake_email):
 
 
 def test_fake_llm_returns_canned_completion_with_usage(fake_llm):
-    result = fake_llm.complete(prompt="help me", model="test/model")
+    messages = [
+        {"role": "system", "content": "rules"},
+        {"role": "user", "content": "help me"},
+    ]
+    result = fake_llm.complete(messages=messages, model="test/model")
 
     assert result.text == "What have you tried so far?"
     assert result.prompt_tokens == 120
     assert result.completion_tokens == 18
     assert result.cost_usd == pytest.approx(0.0012)
-    assert fake_llm.calls == [{"prompt": "help me", "model": "test/model"}]
+    assert fake_llm.calls[0]["messages"] == messages
+    assert fake_llm.calls[0]["model"] == "test/model"
+    # The flattened `prompt` view carries every message's text.
+    assert fake_llm.calls[0]["prompt"] == "rules\nhelp me"
 
 
 def test_fake_llm_can_be_switched_to_timeout(fake_llm):
     fake_llm.mode = "timeout"
     with pytest.raises(LLMTimeoutError):
-        fake_llm.complete(prompt="x", model="m")
+        fake_llm.complete(messages=[{"role": "user", "content": "x"}], model="m")
 
 
 def test_fake_llm_can_be_switched_to_error(fake_llm):
     fake_llm.mode = "error"
     with pytest.raises(LLMError):
-        fake_llm.complete(prompt="x", model="m")
+        fake_llm.complete(messages=[{"role": "user", "content": "x"}], model="m")
 
 
 def test_fake_clock_is_advanceable(fake_clock):

@@ -196,6 +196,11 @@ class MentisQAskRequest(BaseModel):
     # for a practice question; neither for a general maths question.
     topic_slug: str | None = Field(default=None, min_length=1)
     question_id: int | None = Field(default=None, ge=1)
+    # Continue this conversation. Ignored if its context no longer matches the
+    # anchor above (that opens a new session) or if `new_chat` is set.
+    session_id: int | None = Field(default=None, ge=1)
+    # Force a fresh session even when a prior one could be continued.
+    new_chat: bool = False
 
 
 class MentisQReplyOut(BaseModel):
@@ -205,6 +210,27 @@ class MentisQReplyOut(BaseModel):
     # message — `status` says which.
     reply: str
     status: str  # "ok" | "failed" | "limit_reached"
+
+
+class MentisQTurnOut(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class MentisQSessionOut(BaseModel):
+    """A conversation and its non-failed turns, for the SPA to hydrate a running
+    exchange (e.g. the general entry point resuming the latest chat)."""
+
+    session_id: int
+    topic_slug: str | None
+    question_id: int | None
+    helpful: bool | None
+    turns: list[MentisQTurnOut]
+
+
+class MentisQHelpfulRequest(BaseModel):
+    # `null` clears a prior rating.
+    helpful: bool | None = None
 
 
 class MentisQSettingsOut(BaseModel):
