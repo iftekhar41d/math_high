@@ -13,9 +13,22 @@ reimplemented in each.
 
 from __future__ import annotations
 
-from app.models import CONTENT_PUBLISHED, Animation, Topic
-from app.schemas import AnimationOut
+from typing import Literal
+
+from app.models import CONTENT_DRAFT, CONTENT_PUBLISHED, Animation, Topic
+from app.schemas import AnimationAdminOut, AnimationOut, TopicRef
 from app.storage import MediaStorage
+
+# The two asset kinds an animation carries, and, per kind, the extensions
+# `media_key_for` will keep off an upload's filename plus the fallback it uses
+# when the filename has none of them. `video_key` / `transcript_key` feed
+# nginx's `/media/` location, which types the response by extension, so a
+# stray extension must not ride through.
+AssetKind = Literal["video", "transcript"]
+_ASSET_EXTS: dict[AssetKind, tuple[frozenset[str], str]] = {
+    "video": (frozenset({".mp4", ".webm", ".mov", ".m4v", ".ogv"}), ".mp4"),
+    "transcript": (frozenset({".vtt", ".srt"}), ".vtt"),
+}
 
 
 class CannotPublish(ValueError):
@@ -67,3 +80,36 @@ def publish_animation(animation: Animation) -> None:
             "an animation needs a transcript before it can be published"
         )
     animation.status = CONTENT_PUBLISHED
+
+
+def unpublish_animation(animation: Animation) -> None:
+    """Pull `animation` back to `draft` — students stop seeing it, a
+    `ContentAdmin` still does. Always allowed; the inverse of
+    `publish_animation`."""
+    animation.status = CONTENT_DRAFT
+
+
+def media_key_for(slug: str, kind: AssetKind, filename: str | None) -> str:
+    """The `MediaStorage` key an animation's `kind` asset is stored under.
+    Derived from `slug` + `kind` so re-uploading the same kind overwrites in
+    place; the extension is carried over from `filename` only when it is one
+    this kind recognises, else the per-kind fallback."""
+    allowed, fallback = _ASSET_EXTS[kind]
+    ext = ""
+    if filename and "." in filename:
+        ext = "." + filename.rsplit(".", 1)[1].strip().lower()
+    if ext not in allowed:
+        ext = fallback
+    return f"animations/{slug}/{kind}{ext}"
+
+
+def admin_animation_out(
+    animation: Animation, storage: MediaStorage
+) -> AnimationAdminOut:
+    """The ContentAdmin view of `animation`: exactly the student-facing view
+    (`animation_out`) plus every Topic it is attached to, for the upload
+    screen."""
+    return AnimationAdminOut(
+        **animation_out(animation, storage).model_dump(),
+        topics=[TopicRef.model_validate(t) for t in animation.topics],
+    )

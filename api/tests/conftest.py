@@ -19,7 +19,13 @@ from app.database import Base, get_db
 from app.email_sender import get_email_sender
 from app.main import app
 from app.mentisq.llm_client import get_llm_client
-from tests.fakes import FakeClock, FakeEmailSender, FakeMentisQLLMClient
+from app.storage import get_media_storage
+from tests.fakes import (
+    FakeClock,
+    FakeEmailSender,
+    FakeMediaStorage,
+    FakeMentisQLLMClient,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -81,7 +87,12 @@ def fake_llm() -> FakeMentisQLLMClient:
 
 
 @pytest.fixture
-def client(db_engine, fake_clock, fake_email, fake_llm):
+def fake_media() -> FakeMediaStorage:
+    return FakeMediaStorage()
+
+
+@pytest.fixture
+def client(db_engine, fake_clock, fake_email, fake_llm, fake_media):
     Session = sessionmaker(bind=db_engine, autoflush=False, autocommit=False)
 
     def override_get_db():
@@ -95,6 +106,7 @@ def client(db_engine, fake_clock, fake_email, fake_llm):
     app.dependency_overrides[get_clock] = lambda: fake_clock
     app.dependency_overrides[get_email_sender] = lambda: fake_email
     app.dependency_overrides[get_llm_client] = lambda: fake_llm
+    app.dependency_overrides[get_media_storage] = lambda: fake_media
     try:
         with TestClient(app) as test_client:
             yield test_client

@@ -30,8 +30,8 @@ manifest without writing anything. See the "Content seeding" architecture note.
 
 Tests: `pytest` (from `api/`). The harness is `tests/conftest.py` — FastAPI
 `TestClient`, an ephemeral in-memory SQLite DB per test, and dependency-override
-fakes for the three boundary adapters (`Clock`, `EmailSender`,
-`MentisQLLMClient`). Tests assert on HTTP responses and persisted state, not
+fakes for the boundary adapters (`Clock`, `EmailSender`, `MentisQLLMClient`,
+`MediaStorage`). Tests assert on HTTP responses and persisted state, not
 internals.
 
 ### Web (`web/`)
@@ -129,6 +129,26 @@ list in `TopicDetail.animations` (empty when none); the SPA renders an
 a `<video>` player, `<track>` captions, and a transcript link. Rows are created
 only through the ContentAdmin upload screen (Phase 2 ticket 11) — never the
 text-only manifest — upserted by `slug`.
+
+`app/routers/content_admin.py` (`/content-admin/...`, browser `/api/content-admin/...`)
+is that screen's API, gated end-to-end by `require_content_admin`
+(`app/auth/dependencies.py`) — a student or a `SuperAdmin` gets 403. `POST
+/animations` is a **multipart** upsert by `slug`: `Form` metadata plus a `video`
+`UploadFile` (required only when creating — an update keeps the stored asset
+unless a fresh file is sent) and an optional `transcript`, saved through the
+`MediaStorage` seam under `media_key_for(slug, kind, filename)`
+(`animations/<slug>/<kind><ext>`, so re-upload overwrites). `PUT
+/animations/{slug}/topics` (`{topic_ids}`) **replaces** the attached set —
+attach and detach in one call, 404 on an unknown id. `POST
+/animations/{slug}/publish` wraps `publish_animation` (409 `CannotPublish` with
+no transcript); `.../unpublish` calls `unpublish_animation` (always allowed).
+`GET /animations` + `GET /animations/{slug}` return the `AnimationAdminOut` DTO
+(`admin_animation_out` — student media URLs plus every attached Topic, drafts
+included); `GET /content-admin/topics` is the flat course-wide Topic list the
+screen's picker reads. SPA: `web/src/views/AdminAnimationsView.vue` + route
+`admin-animations` (`/admin/animations`), linked from the header nav for a
+`content_admin`. The test media seam is `tests/fakes.py::FakeMediaStorage`
+(in-memory), wired in `conftest.py`.
 
 ### Auth (`app/auth/`)
 `AuthService` (`app/auth/service.py`) is the reusable core — registration, email

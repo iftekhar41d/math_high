@@ -113,6 +113,12 @@ const routes = [
     component: () => import('../views/AdminMentisQView.vue'),
     meta: { requiresAuth: true },
   },
+  {
+    path: '/admin/animations',
+    name: 'admin-animations',
+    component: () => import('../views/AdminAnimationsView.vue'),
+    meta: { requiresAuth: true },
+  },
 ]
 
 const router = createRouter({

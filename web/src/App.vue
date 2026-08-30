@@ -10,6 +10,7 @@ const router = useRouter()
 const { user, isAuthenticated } = storeToRefs(auth)
 
 const isSuperAdmin = computed(() => user.value?.role === 'super_admin')
+const isContentAdmin = computed(() => user.value?.role === 'content_admin')
 
 async function signOut() {
   await auth.logout()
@@ -26,6 +27,7 @@ async function signOut() {
         <RouterLink v-if="isAuthenticated" to="/dashboard">Dashboard</RouterLink>
         <RouterLink v-if="isAuthenticated" to="/learn">Learn</RouterLink>
         <RouterLink v-if="isAuthenticated" to="/mentisq">Ask MentisQ</RouterLink>
+        <RouterLink v-if="isContentAdmin" to="/admin/animations">Animations</RouterLink>
         <RouterLink v-if="isSuperAdmin" to="/admin/mentisq">Settings</RouterLink>
         <RouterLink to="/about">About</RouterLink>
       </nav>

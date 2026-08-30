@@ -7,6 +7,7 @@ stack is faked — routers, services, grading, and the DB are all real.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import BinaryIO
 
 from app.clock import Clock
 from app.email_sender import EmailMessage, EmailSender
@@ -16,6 +17,7 @@ from app.mentisq.llm_client import (
     LLMTimeoutError,
     MentisQLLMClient,
 )
+from app.storage import MEDIA_URL_PREFIX, MediaStorage
 
 # A fixed, timezone-aware instant tests start from unless they pass their own.
 DEFAULT_START = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -49,6 +51,22 @@ class FakeEmailSender(EmailSender):
     @property
     def last(self) -> EmailMessage:
         return self.sent[-1]
+
+
+class FakeMediaStorage(MediaStorage):
+    """Keeps uploaded bytes in a dict instead of touching disk. `get_url`
+    matches `LocalMediaStorage`'s `/media/<key>` scheme so response assertions
+    are the same."""
+
+    def __init__(self) -> None:
+        self.saved: dict[str, bytes] = {}
+
+    def save(self, key: str, source: BinaryIO) -> str:
+        self.saved[key] = source.read()
+        return self.get_url(key)
+
+    def get_url(self, key: str) -> str:
+        return f"{MEDIA_URL_PREFIX}/{key}"
 
 
 class FakeMentisQLLMClient(MentisQLLMClient):

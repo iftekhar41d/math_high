@@ -35,6 +35,10 @@ async function parseError(res) {
 
 async function raw(path, { auth = false, headers = {}, ...options } = {}) {
   const finalHeaders = { 'Content-Type': 'application/json', ...headers }
+  // Let the browser set `multipart/form-data` (with its boundary) for uploads.
+  if (options.body instanceof FormData) {
+    delete finalHeaders['Content-Type']
+  }
   if (auth && accessToken) {
     finalHeaders.Authorization = `Bearer ${accessToken}`
   }
@@ -197,6 +201,49 @@ export const rateMentisQSession = (sessionId, helpful) =>
     method: 'POST',
     auth: true,
     body: JSON.stringify({ helpful }),
+  })
+
+// -- content admin: animations (ContentAdmin only) --------------------
+// Every Topic in the course, flat, for the upload screen's Topic picker.
+export const getAdminTopics = () => request('/content-admin/topics', { auth: true })
+
+export const getAdminAnimations = () =>
+  request('/content-admin/animations', { auth: true })
+
+// Upsert an animation by slug. `fields` carries slug/title/description/
+// duration_seconds; `video` / `transcript` are File objects (video required
+// only when creating). Sent as multipart/form-data — no JSON Content-Type.
+export const saveAdminAnimation = ({ video, transcript, ...fields }) => {
+  const form = new FormData()
+  for (const [k, v] of Object.entries(fields)) {
+    if (v !== undefined && v !== null && v !== '') form.append(k, v)
+  }
+  if (video) form.append('video', video)
+  if (transcript) form.append('transcript', transcript)
+  return request('/content-admin/animations', {
+    method: 'POST',
+    auth: true,
+    body: form,
+  })
+}
+
+export const setAdminAnimationTopics = (slug, topicIds) =>
+  request(`/content-admin/animations/${encodeURIComponent(slug)}/topics`, {
+    method: 'PUT',
+    auth: true,
+    body: JSON.stringify({ topic_ids: topicIds }),
+  })
+
+export const publishAdminAnimation = (slug) =>
+  request(`/content-admin/animations/${encodeURIComponent(slug)}/publish`, {
+    method: 'POST',
+    auth: true,
+  })
+
+export const unpublishAdminAnimation = (slug) =>
+  request(`/content-admin/animations/${encodeURIComponent(slug)}/unpublish`, {
+    method: 'POST',
+    auth: true,
   })
 
 // -- admin: MentisQ settings (SuperAdmin only) -------------------------

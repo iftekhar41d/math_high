@@ -5,7 +5,9 @@ the signature/expiry is bad or if the user's `token_generation` has moved past
 the value baked into the token (password reset, logout-all).
 `require_verified_user` additionally insists the email is confirmed — that is the
 gate every student endpoint should sit behind. `require_super_admin` narrows
-that to the `SuperAdmin` role for the system-config endpoints (ticket 06).
+that to the `SuperAdmin` role for the system-config endpoints (ticket 06);
+`require_content_admin` to the `ContentAdmin` role for the animation authoring
+endpoints (Phase 2 ticket 11).
 """
 
 from __future__ import annotations
@@ -17,7 +19,7 @@ from app.auth.jwt import InvalidAccessToken, decode_access_token
 from app.auth.service import AuthService
 from app.clock import Clock, get_clock
 from app.database import get_db
-from app.models import User, is_super_admin
+from app.models import User, is_content_admin, is_super_admin
 
 _UNAUTH = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -63,5 +65,13 @@ def require_super_admin(user: User = Depends(require_verified_user)) -> User:
     if not is_super_admin(user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="SuperAdmin only"
+        )
+    return user
+
+
+def require_content_admin(user: User = Depends(require_verified_user)) -> User:
+    if not is_content_admin(user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="ContentAdmin only"
         )
     return user

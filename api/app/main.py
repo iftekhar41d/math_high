@@ -7,6 +7,7 @@ from app.routers import (
     admin,
     auth,
     content,
+    content_admin,
     dashboard,
     mentisq,
     meta,
@@ -33,6 +34,7 @@ app.include_router(meta.router)
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(content.router)
+app.include_router(content_admin.router)
 app.include_router(practice.router)
 app.include_router(mentisq.router)
 app.include_router(dashboard.router)

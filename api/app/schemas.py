@@ -157,6 +157,34 @@ class TopicDetail(BaseModel):
     animations: list[AnimationOut]
 
 
+class AnimationAdminOut(AnimationOut):
+    """An animation as the ContentAdmin upload screen renders it — the
+    student-facing view (`AnimationOut`) plus every Topic it is currently
+    attached to. Draft rows are included; a student never sees this shape."""
+
+    topics: list[TopicRef]
+
+
+class SetAnimationTopicsRequest(BaseModel):
+    """The complete set of Topics an animation should be attached to — the
+    endpoint replaces the current set, so this both attaches and detaches."""
+
+    topic_ids: list[int]
+
+
+class AdminTopicOut(BaseModel):
+    """Every Topic, flat, with its Unit/Subject/Year for grouping — the
+    ContentAdmin screen's Topic picker reads this instead of walking the
+    browse tree level by level."""
+
+    id: int
+    title: str
+    slug: str
+    unit_title: str
+    subject_title: str
+    year_level_name: str
+
+
 # -- practice & grading -------------------------------------------------------
 
 
