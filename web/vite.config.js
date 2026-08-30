@@ -13,6 +13,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // Uploaded media (animation videos, lecture images). nginx serves this
+      // off disk in prod; in dev the API's /media static mount does. No
+      // rewrite — the backend serves it at the same /media path.
+      '/media': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

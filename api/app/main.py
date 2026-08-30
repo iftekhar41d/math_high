@@ -2,7 +2,9 @@ import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
+from app.storage import media_root
 from app.routers import (
     admin,
     auth,
@@ -39,6 +41,13 @@ app.include_router(practice.router)
 app.include_router(mentisq.router)
 app.include_router(dashboard.router)
 app.include_router(admin.router)
+
+# Serve uploaded media (lecture images, animation videos + transcripts) straight
+# from the store. In production nginx's `location /media/` matches first and
+# these requests never reach the API (deploy/nginx.conf) — this mount is what
+# makes media resolve in local dev, where the Vite proxy only forwards `/api`.
+# `check_dir=False` so import never depends on the directory existing yet.
+app.mount("/media", StaticFiles(directory=media_root(), check_dir=False), name="media")
 
 
 @app.get("/health")

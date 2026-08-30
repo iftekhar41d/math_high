@@ -61,8 +61,14 @@ class LocalMediaStorage(MediaStorage):
         return f"{MEDIA_URL_PREFIX}/{_safe_key(key)}"
 
 
+def media_root() -> str:
+    """The local media directory: `MEDIA_ROOT` env or `./data/media` (resolved
+    from the CWD, same as `DATABASE_URL`). Single source of truth for both the
+    storage dependency and the dev-only `/media` static mount in `app.main`."""
+    return os.getenv("MEDIA_ROOT", "./data/media")
+
+
 def get_media_storage() -> MediaStorage:
-    """FastAPI dependency. `MEDIA_ROOT` defaults to `api/data/media` (resolved
-    from the CWD, same as `DATABASE_URL`); override with a real backend in a
-    future ticket."""
-    return LocalMediaStorage(os.getenv("MEDIA_ROOT", "./data/media"))
+    """FastAPI dependency. Files live under `media_root()`; override with a real
+    backend in a future ticket."""
+    return LocalMediaStorage(media_root())

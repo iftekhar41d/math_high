@@ -350,6 +350,14 @@ service restart, so the schema is in step with the code being started. The
 content ingest runs straight after, so lecture and question edits ship the same
 way.
 
+The deploy only `reload`s nginx — it never re-renders the site from
+`deploy/nginx.conf`. So a change to that template (a new `location` block, say)
+does **not** reach an already-provisioned host; it applies only on the next
+`setup-vps.sh` run. Edit the live `/etc/nginx/sites-available/math-high` by hand
+on each host, then `sudo nginx -t && sudo systemctl reload nginx`. (This is how
+the `location /media/` block — added to the template after the current host was
+set up — had to be applied to `math.mentisq.com`.)
+
 ## Re-running setup on an existing host
 
 `setup-vps.sh` is close to idempotent — `git pull` instead of clone, `enable --now`,
