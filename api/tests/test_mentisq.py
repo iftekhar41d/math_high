@@ -674,6 +674,82 @@ def test_helpful_rejects_another_students_session(
     )
 
 
+# -- SymPy step-check -------------------------------------------------------
+
+
+def _system_prompt(fake_llm, call_index=-1):
+    return fake_llm.calls[call_index]["messages"][0]["content"]
+
+
+def test_invalid_working_injects_an_invalid_verdict_for_the_model_only(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    resp = _ask(client, headers, content="3(x + 2)\n= 3x + 5")
+    assert resp.status_code == 200
+
+    # The verdict rides in on the system message, naming the wrong step…
+    system = _system_prompt(fake_llm)
+    assert "Automated algebra check" in system
+    assert "- step 2: INVALID" in system
+
+    # …not as a user/assistant turn, and not shown back to the student.
+    non_system = fake_llm.calls[0]["messages"][1:]
+    assert all("step 2: INVALID" not in m["content"] for m in non_system)
+    assert "INVALID" not in resp.text
+
+    # And nothing about the check is persisted — only the raw turns.
+    contents = [
+        m.content
+        for m in db_session.query(MentisQMessage)
+        .filter_by(session_id=resp.json()["session_id"])
+        .all()
+    ]
+    assert contents == ["3(x + 2)\n= 3x + 5", "What have you tried so far?"]
+
+
+def test_valid_working_is_noted_valid_and_adds_no_provider_cost(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    resp = _ask(client, headers, content="3(x + 2)\n= 3x + 6")
+    assert resp.status_code == 200
+
+    system = _system_prompt(fake_llm)
+    assert "- step 2: VALID" in system
+    # One provider call, usage/cost exactly the canned exchange — the check is
+    # free.
+    assert len(fake_llm.calls) == 1
+    assistant = (
+        db_session.query(MentisQMessage)
+        .filter_by(session_id=resp.json()["session_id"], role="assistant")
+        .one()
+    )
+    assert assistant.cost_usd == pytest.approx(0.0012)
+
+
+def test_turn_without_parseable_working_injects_no_step_check(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    _ask(client, headers, content="I'm stuck — how do I even begin this one?")
+
+    system = _system_prompt(fake_llm)
+    assert "Automated algebra check" not in system
+    assert "VALID" not in system  # neither VALID nor INVALID
+
+
+def test_step_check_is_bounded_to_the_latest_turn(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    sid = _ask(client, headers, content="3(x + 2)\n= 3x + 5").json()["session_id"]
+    # A follow-up with no working: the earlier turn's bad step must not linger.
+    _ask(client, headers, content="ok what next?", session_id=sid)
+
+    assert "Automated algebra check" not in _system_prompt(fake_llm)
+
+
 def test_current_session_hands_back_the_running_general_exchange(
     client, fake_email, fake_llm, db_session, mentisq_tree
 ):

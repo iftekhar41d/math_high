@@ -270,6 +270,23 @@ core the thin router wraps:
   once early turns leave the window), then `history` (already trimmed /
   failed-filtered by the caller), then the new `user` turn. `HISTORY_MAX_MESSAGES`
   (12) is the replay window — older turns are dropped, not summarised.
+- `step_check.py` — a **pure** deterministic algebra check (no DB / clock /
+  provider, never raises), the counterpart to `grading.py`. `check_working(text)`
+  scans **only the latest student turn** for equality chains — expressions joined
+  by `=` on one line (`a = b = c`) or continued across lines by a leading `=`;
+  plain adjacent lines are not joined — verifies each consecutive step with
+  `app/cas/` `check_equivalence`, and returns a `- step N: VALID` /
+  `- step N: INVALID — …` block under a "reference only" header, or `None` when
+  nothing checkable parses. A step is only `INVALID` when the two sides differ
+  under **every** `app/cas/` domain (`real` / `positive` / `complex`), so a
+  restricted-domain identity like `sqrt(x^2) = x` is passed over silently, not
+  misreported. A lone `a = b` line (a conditional equation being solved, not an
+  identity claim) and any chain with a prose-looking member are skipped — so
+  multi-line equation solving goes unchecked (CAS compares expressions, not
+  equations, and a false `INVALID` on every written equation would be worse than
+  silence). `service.post_message` passes the block to
+  `build_messages(..., step_check=...)`, which appends it to the `system`
+  message — never a turn of its own, never persisted, adding no provider call.
 - `settings.py` — the model name is environment-only (`OPENROUTER_MODEL`, via the
   `model_name()` helper; not stored, not editable at runtime). `MentisQSettings`
   is the runtime-editable caps: typed accessors over the `Setting` key/value

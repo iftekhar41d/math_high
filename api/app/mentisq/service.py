@@ -7,9 +7,11 @@ caps, and if they are under, call the provider once with the system prompt plus
 the last `HISTORY_MAX_MESSAGES` non-failed turns, persist the user and assistant
 turns with the provider's usage (prompt tokens on the user turn, completion
 tokens + USD cost on the assistant turn — so `SUM(cost_usd)` counts each exchange
-once), and hand back the reply. On a provider timeout / outage / bad response the
-student gets a fixed fallback, both turns are stored `failed`, and the exchange
-is metered against nothing.
+once), and hand back the reply. If the student's turn holds checkable working,
+`step_check.check_working` verifies it with `app.cas` and the verdicts ride into
+that one call's system prompt (no extra provider call, nothing persisted). On a
+provider timeout / outage / bad response the student gets a fixed fallback, both
+turns are stored `failed`, and the exchange is metered against nothing.
 
 `set_helpful` records the student's 👍/👎 on one of their own sessions.
 
@@ -35,6 +37,7 @@ from app.mentisq.prompt import (
     build_messages,
 )
 from app.mentisq.settings import MentisQSettings
+from app.mentisq.step_check import check_working
 from app.models import (
     MENTISQ_MODE_GUIDED,
     MENTISQ_ROLE_ASSISTANT,
@@ -272,6 +275,9 @@ class MentisQService:
             context,
             self._history_for(session.id),
             is_continuation=self._session_has_reply(session.id),
+            # Deterministic algebra check of this turn's working, if any —
+            # injected into the system prompt, no extra provider call.
+            step_check=check_working(content),
         )
         try:
             completion = self.llm.complete(

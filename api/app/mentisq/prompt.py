@@ -112,6 +112,7 @@ def build_messages(
     history: list[_Turn] | None = None,
     *,
     is_continuation: bool = False,
+    step_check: str | None = None,
 ) -> list[dict[str, str]]:
     """The OpenAI-style message list sent to the provider: the guided-mode
     `system` message (rules + any injected context), then the recent
@@ -121,6 +122,9 @@ def build_messages(
     exclude `failed` turns; this function does not filter it. `is_continuation`
     states plainly whether prior assistant turns exist, so the first-turn rule
     holds even once the earliest turns have fallen outside the replay window.
+    `step_check`, when the student's turn held checkable working, is the
+    deterministic verdict block from `app.mentisq.step_check` — appended to the
+    `system` message as reference material, never sent as its own turn.
     """
     turn_state = (
         "This is a continuation of an ongoing session — earlier turns may fall "
@@ -128,11 +132,11 @@ def build_messages(
         if is_continuation
         else "This is the FIRST assistant turn of the session."
     )
+    system_content = f"{render_system_prompt(context)}\n\n{turn_state}"
+    if step_check:
+        system_content += f"\n\n{step_check}"
     messages: list[dict[str, str]] = [
-        {
-            "role": "system",
-            "content": f"{render_system_prompt(context)}\n\n{turn_state}",
-        }
+        {"role": "system", "content": system_content}
     ]
     for turn in history or []:
         messages.append({"role": turn.role, "content": turn.content})
