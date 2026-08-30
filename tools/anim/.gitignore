@@ -1,0 +1,14 @@
+# The toolchain's own venv and secrets.
+.venv/
+.env
+
+__pycache__/
+*.pyc
+
+# Rendered artifacts and Manim's scratch dir. The reviewed .mp4 + .vtt are
+# uploaded through the ContentAdmin screen (ticket 11), not committed here.
+out/
+media/
+
+# NB: scenes/<slug>/idea.txt and scenes/<slug>/scene.py ARE committed — they are
+# the reproducible source for a re-render or a hand-edit.

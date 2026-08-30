@@ -1,0 +1,17 @@
+# Animation authoring toolchain — install ONLY on a developer machine or in CI.
+#
+# Nothing here goes into the API venv (api/requirements.txt) and none of it runs
+# on the VPS: the running service never renders. See docs/adr/0004.
+#
+# System prerequisites Manim needs but pip cannot install:
+#   - a LaTeX distribution (TeX Live / MiKTeX) with `latex` + `dvisvgm` on PATH
+#   - ffmpeg on PATH
+#   - Cairo / Pango (bundled in the manim wheels on most platforms)
+#
+#   cd tools/anim
+#   python -m venv .venv && .venv/Scripts/activate   # source .venv/bin/activate on macOS/Linux
+#   pip install -r requirements.txt
+
+manim==0.18.1
+httpx==0.28.1          # matches api/requirements.txt
+python-dotenv==1.0.1   # optional: lets config.py load tools/anim/.env

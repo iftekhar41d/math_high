@@ -98,8 +98,9 @@ Three seams isolate the app from the outside world, each a FastAPI dependency
 with a real implementation and an in-memory test fake:
 `Clock` (`app/clock.py`, injectable `now()`), `EmailSender` (`app/email_sender.py`,
 outbound email; logs instead of sending when `SMTP_HOST` is unset), and
-`MentisQLLMClient` (`app/mentisq/llm_client.py`, the only code that talks to
-OpenRouter; 30s timeout; **key and model name from the environment**
+`MentisQLLMClient` (`app/mentisq/llm_client.py`, the only code in `api/` that
+talks to OpenRouter — the off-VPS `tools/anim/` toolchain has its own separate
+client; 30s timeout; **key and model name from the environment**
 (`OPENROUTER_API_KEY` / `OPENROUTER_MODEL`), never the DB). Override
 them with `app.dependency_overrides` in tests; don't reach past them.
 
@@ -149,6 +150,32 @@ screen's picker reads. SPA: `web/src/views/AdminAnimationsView.vue` + route
 `admin-animations` (`/admin/animations`), linked from the header nav for a
 `content_admin`. The test media seam is `tests/fakes.py::FakeMediaStorage`
 (in-memory), wired in `conftest.py`.
+
+### Animation authoring toolchain (`tools/anim/`)
+An **off-VPS** developer/ContentAdmin tool (ticket 12) that turns a
+plain-language idea into a reviewed animation. It has its **own**
+`requirements.txt` (`manim`, `httpx`) and is **never** installed into the API
+venv or run on the service ([ADR-0004](docs/adr/0004-authoring-time-background-work.md)).
+Pipeline (`anim/pipeline.py::author_animation`, reviewer injected): LLM drafts a
+single-file Manim scene (`anim/scriptgen.py`) → `scenes/<slug>/idea.txt` +
+`scene.py` written (`anim/scene_store.py`, both git-committed) → `manim render`
+shelled out (`anim/render.py`; imported via subprocess so the package loads with
+no Manim installed), and on a render failure the traceback is fed back to the LLM
+and retried up to `ANIM_RENDER_RETRIES` (default 3) → LLM writes captions, laid
+out as WebVTT (`anim/transcript.py`) → a human approves or rejects; a rejection
+note is fed into the next generation, bounded by `--max-regenerations`. The
+`.mp4` + `.vtt` land in `tools/anim/out/<slug>/` (gitignored) and are uploaded
+through the ContentAdmin screen (`/admin/animations`, ticket 11); `scenes/<slug>/`
+is committed so a re-render or hand-edit is reproducible. It **reuses
+`OPENROUTER_API_KEY`** but reads its **own** `ANIM_LLM_MODEL`
+(`anim/config.py`; default `openai/gpt-4o`) via a separate OpenRouter client
+(`anim/llm.py`) — authoring cost never touches MentisQ spend or caps. CLI:
+`python author.py --slug <slug> --idea "..."` from `tools/anim/` (also
+`--idea-file`, `--from-scene --reject-note`, `--rerender`, `--yes`). Smoke test:
+`python smoke_test.py` from `tools/anim/` — imports + pure seams + a
+stub-LLM/stub-render pipeline run, **outside** `pytest` (the API suite never
+depends on Manim). Repo skill: `.claude/skills/author-animation/`. Env var
+documented in `.env.example` + `tools/anim/.env.example`.
 
 ### Auth (`app/auth/`)
 `AuthService` (`app/auth/service.py`) is the reusable core — registration, email
