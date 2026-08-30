@@ -347,11 +347,18 @@ core the thin router wraps:
   nothing checkable parses. A step is only `INVALID` when the two sides differ
   under **every** `app/cas/` domain (`real` / `positive` / `complex`), so a
   restricted-domain identity like `sqrt(x^2) = x` is passed over silently, not
-  misreported. A lone `a = b` line (a conditional equation being solved, not an
-  identity claim) and any chain with a prose-looking member are skipped — so
-  multi-line equation solving goes unchecked (CAS compares expressions, not
-  equations, and a false `INVALID` on every written equation would be worse than
-  silence). `service.post_message` passes the block to
+  misreported. A run of 2+ **consecutive single-line `L = R`** lines is an
+  *equation chain* (the student solving an equation): each adjacent pair is
+  checked by the **difference test** — `app/cas/` asks whether `L₁ − R₁` is
+  equivalent to `L₂ − R₂`; equivalent → `VALID` (same quantity added to both
+  sides, or a rearrangement), anything else → **silent**. An equation chain
+  **never** emits `INVALID` — a changed difference is as likely a legal `×`/`÷`
+  of both sides (`2x = 6` → `x = 3`) as an error, and CAS compares expressions,
+  not equations. A lone `a = b` line with no equation line after it, and any
+  chain with a prose-looking member, are skipped. Remaining gap:
+  multiplicative equation steps and additive *errors* in an equation chain stay
+  unverified (the difference test is VALID-or-silent by design).
+  `service.post_message` passes the block to
   `build_messages(..., step_check=...)`, which appends it to the `system`
   message — never a turn of its own, never persisted, adding no provider call.
 - `settings.py` — the model name is environment-only (`OPENROUTER_MODEL`, via the

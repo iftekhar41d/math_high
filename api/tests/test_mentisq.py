@@ -728,6 +728,20 @@ def test_valid_working_is_noted_valid_and_adds_no_provider_cost(
     assert assistant.cost_usd == pytest.approx(0.0012)
 
 
+def test_equation_solving_working_notes_the_sound_step_for_the_model(
+    client, fake_email, fake_llm, db_session, mentisq_tree
+):
+    headers = _student(client, fake_email)
+    resp = _ask(client, headers, content="2x + 4 = 10\n2x = 6\nx = 3")
+    assert resp.status_code == 200
+
+    system = _system_prompt(fake_llm)
+    assert "Automated algebra check" in system
+    assert "- step 2: VALID" in system  # subtracted 4 from both sides
+    assert "step 3" not in system  # dividing by 2 is unprovable → silent
+    assert "VALID" not in resp.text  # never read back to the student
+
+
 def test_turn_without_parseable_working_injects_no_step_check(
     client, fake_email, fake_llm, db_session, mentisq_tree
 ):

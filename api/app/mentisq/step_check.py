@@ -19,18 +19,25 @@ misleading a student must not mislead one itself:
 - Only the latest student turn is scanned; history is untouched.
 - A "chain" is expressions joined by ``=`` — several on one line (``a = b = c``)
   or continued across lines by a leading ``=``. Consecutive plain lines are
-  *not* joined; that is too ambiguous to trust.
-- A chain is checked only when it has 3+ members, or was extended by a
-  leading-``=`` continuation line. A lone ``a = b`` line is a conditional
-  equation the student is *solving* (``2x + 4 = 10``), not an identity claim, and
-  there is no reliable way to tell it apart from a wrong one-line simplification,
-  so it is left alone. This does mean routine multi-line equation solving —
-  separate ``a = b`` lines — goes unchecked; `app.cas` compares expressions, not
-  equations, and a false ``INVALID`` on every equation a student writes would be
-  worse than silence.
-- A step is called ``INVALID`` only when the two sides are non-equivalent under
-  *every* domain `app.cas` offers, so an identity that holds only for, say,
-  positive ``x`` (``sqrt(x^2) = x``) is passed over in silence, not flagged.
+  *not* joined into a chain; that is too ambiguous to trust as an identity
+  claim.
+- A *simplification chain* is checked only when it has 3+ members, or was
+  extended by a leading-``=`` continuation line. A step is called ``INVALID``
+  only when the two sides are non-equivalent under *every* domain `app.cas`
+  offers, so an identity that holds only for, say, positive ``x``
+  (``sqrt(x^2) = x``) is passed over in silence, not flagged.
+- A run of 2+ *consecutive* single-line ``L = R`` lines (no leading ``=``) is an
+  *equation chain* — the student solving an equation. For each adjacent pair the
+  difference test asks `app.cas` whether ``L₁ − R₁`` is equivalent to
+  ``L₂ − R₂``: equivalent → the same quantity was added to both sides (or the
+  equation rearranged), a sound step → ``VALID``; anything else → **silent**. An
+  equation chain never emits ``INVALID``: a non-equivalent difference can be a
+  legal ``×``/``÷`` of both sides (``2x = 6`` → ``x = 3``) just as easily as an
+  error, and `app.cas` compares expressions, not equations, so it can't tell
+  them apart. A lone ``L = R`` line with no equation line after it injects
+  nothing.
+- Known gap: multiplicative equation steps and additive *errors* in an equation
+  chain are still unverified — the difference test is VALID-or-silent by design.
 - Any member that reads as prose (a 3+ letter run that is not a known function
   name) disqualifies its whole chain.
 """
@@ -85,6 +92,21 @@ class _Chain:
 
 
 @dataclass(frozen=True)
+class _Equation:
+    """One single-line ``left = right`` the student wrote while solving."""
+
+    left: str
+    right: str
+
+
+@dataclass
+class _EquationRun:
+    """Consecutive `_Equation` lines — the student solving one equation."""
+
+    equations: list[_Equation] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class _Verdict:
     step: int  # 1-based position of the second member in the working
     valid: bool
@@ -129,6 +151,46 @@ def _extract_chains(text: str) -> list[_Chain]:
     return chains
 
 
+def _is_lone_equation(chain: _Chain) -> bool:
+    """A single-line ``L = R`` — exactly two mathy members, no continuation.
+    On its own it is a conditional equation being solved; a run of them is an
+    `_EquationRun`."""
+    return (
+        len(chain.members) == 2
+        and not chain.continued
+        and all(_is_mathy(member) for member in chain.members)
+    )
+
+
+def _flush_run(run: list[_Chain], items: list[_Chain | _EquationRun]) -> None:
+    """Move `run` (consecutive lone ``L = R`` lines) onto `items`: as one
+    `_EquationRun` when it is 2+ long, otherwise the lone chain unchanged. `run`
+    is emptied."""
+    if len(run) >= 2:
+        items.append(
+            _EquationRun([_Equation(c.members[0], c.members[1]) for c in run])
+        )
+    else:
+        items.extend(run)
+    run.clear()
+
+
+def _partition(chains: list[_Chain]) -> list[_Chain | _EquationRun]:
+    """Fold each maximal run of 2+ consecutive lone ``L = R`` lines into an
+    `_EquationRun`; everything else (simplification chains, and a lone equation
+    with nothing after it) passes through untouched, in order."""
+    items: list[_Chain | _EquationRun] = []
+    run: list[_Chain] = []
+    for chain in chains:
+        if _is_lone_equation(chain):
+            run.append(chain)
+            continue
+        _flush_run(run, items)
+        items.append(chain)
+    _flush_run(run, items)
+    return items
+
+
 def _checkable(chain: _Chain) -> bool:
     if len(chain.members) < 2:
         return False
@@ -161,25 +223,68 @@ def _compare(a: str, b: str, variables: list[str]) -> bool | None:
     return False
 
 
-def _verdicts(chains: list[_Chain]) -> list[_Verdict]:
+def _equation_step_provably_sound(
+    prev: _Equation, cur: _Equation, variables: list[str]
+) -> bool:
+    """The difference test: `True` when moving from equation `prev` to `cur`
+    leaves ``left − right`` unchanged (the same quantity added to both sides, or
+    a pure rearrangement) — a provably sound step. `False` = stay silent: either
+    side unreadable, or the difference changed (a legal ``×``/``÷`` step or an
+    error — `app.cas` compares expressions, not equations, and can't tell which,
+    so an equation chain never reports `INVALID`)."""
+    a = f"({prev.left}) - ({prev.right})"
+    b = f"({cur.left}) - ({cur.right})"
+    return bool(check_equivalence(a, b, variables=variables, domain="real"))
+
+
+def _equation_run_verdicts(
+    run: _EquationRun, step: int, out: list[_Verdict]
+) -> int:
+    """Append a `VALID` verdict for each provably-sound adjacent pair; an
+    unprovable step stays silent (an equation chain never emits `INVALID`).
+    Returns the running step count, advanced past this run."""
+    variables = _free_variables(
+        [side for eq in run.equations for side in (eq.left, eq.right)]
+    )
+    for prev, cur in zip(run.equations, run.equations[1:]):
+        step += 1
+        if len(out) >= _MAX_STEPS:
+            break
+        if _equation_step_provably_sound(prev, cur, variables):
+            out.append(_Verdict(step, True, ""))
+    return step
+
+
+def _chain_verdicts(chain: _Chain, step: int, out: list[_Verdict]) -> int:
+    """Append a `VALID` / `INVALID` verdict for each decidable adjacent pair of a
+    simplification chain; an unreadable or restricted-domain pair stays silent.
+    Returns the running step count, advanced past this chain."""
+    variables = _free_variables(chain.members)
+    for prev, cur in zip(chain.members, chain.members[1:]):
+        step += 1
+        if len(out) >= _MAX_STEPS:
+            break
+        outcome = _compare(prev, cur, variables)
+        if outcome is None:
+            continue
+        out.append(
+            _Verdict(step, True, "")
+            if outcome
+            else _Verdict(step, False, f'"{prev}" is not equivalent to "{cur}"')
+        )
+    return step
+
+
+def _verdicts(items: list[_Chain | _EquationRun]) -> list[_Verdict]:
     out: list[_Verdict] = []
-    step = 1  # the running expression count across the whole turn's working
-    for chain in chains:
-        variables = _free_variables(chain.members)
-        for prev, cur in zip(chain.members, chain.members[1:]):
-            step += 1
-            outcome = _compare(prev, cur, variables)
-            if outcome is None:
-                continue
-            out.append(
-                _Verdict(step, True, "")
-                if outcome
-                else _Verdict(
-                    step, False, f'"{prev}" is not equivalent to "{cur}"'
-                )
-            )
-            if len(out) >= _MAX_STEPS:
-                return out
+    step = 1  # the running relation count across the whole turn's working
+    for item in items:
+        if len(out) >= _MAX_STEPS:
+            break
+        if isinstance(item, _EquationRun):
+            step = _equation_run_verdicts(item, step, out)
+        elif _checkable(item):
+            step = _chain_verdicts(item, step, out)
     return out
 
 
@@ -193,8 +298,7 @@ def check_working(text: str) -> str | None:
     """
     if not text or "=" not in text:
         return None
-    chains = [chain for chain in _extract_chains(text) if _checkable(chain)]
-    verdicts = _verdicts(chains) if chains else []
+    verdicts = _verdicts(_partition(_extract_chains(text)))
     if not verdicts:
         return None
     lines = [_HEADER]
