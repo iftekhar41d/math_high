@@ -40,6 +40,18 @@ from anim.pipeline import (
 from anim.render import RenderUnavailable
 
 
+def _force_utf8_output() -> None:
+    """Windows consoles default to cp1252 and raise ``UnicodeEncodeError`` on any
+    non-ASCII character we print. Reconfigure stdout/stderr to UTF-8, degrading
+    to a safe replacement instead of crashing when the stream can't be
+    reconfigured (e.g. already wrapped by an output capture)."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
+        except (AttributeError, ValueError):
+            pass
+
+
 def _read_idea(args: argparse.Namespace) -> str:
     if args.idea_file:
         return Path(args.idea_file).read_text(encoding="utf-8").strip()
@@ -55,8 +67,8 @@ def _interactive_reviewer(req: ReviewRequest) -> ReviewDecision:
     dur = f"{req.duration_seconds:.1f}s" if req.duration_seconds else "unknown"
     print(
         "\n"
-        f"── Review generation {req.generation} "
-        f"({req.render_attempts} render attempt(s), {dur}) ──\n"
+        f"-- Review generation {req.generation} "
+        f"({req.render_attempts} render attempt(s), {dur}) --\n"
         f"  video      : {req.video_path}\n"
         f"  transcript : {req.transcript_path}\n"
         f"  script     : {req.script_path}\n"
@@ -108,6 +120,7 @@ def _rerender(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_output()
     parser = argparse.ArgumentParser(prog="author.py", description=__doc__)
     parser.add_argument("--slug", required=True, help="kebab-case id; keys scenes/<slug>/ and the uploaded Animation")
     parser.add_argument("--idea", help="the plain-language idea string")
@@ -173,7 +186,7 @@ def _author(args: argparse.Namespace) -> int:
         return 1
 
     print(
-        "\n✓ approved.\n"
+        "\n[approved]\n"
         f"  upload these through the ContentAdmin animation screen (slug '{artifacts.slug}'):\n"
         f"    video      {artifacts.video_path}\n"
         f"    transcript {artifacts.transcript_path}\n"
