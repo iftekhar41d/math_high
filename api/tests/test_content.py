@@ -148,6 +148,48 @@ def test_empty_year_level_returns_an_empty_subject_list(client, fake_email, tree
     assert resp.json() == []
 
 
+def test_my_course_returns_the_students_year_level_subject_and_units(
+    client, fake_email, tree
+):
+    headers = _student(client, fake_email)  # registers at year_level 7
+    body = client.get("/content/my-course", headers=headers).json()
+
+    assert body["year_level"]["id"] == tree["year7_id"]
+    assert body["year_level"]["name"] == "Year 7"
+    assert body["subject"]["title"] == "Mathematics"
+    assert [u["title"] for u in body["units"]] == ["Number", "Algebra"]  # by order
+
+
+def test_my_course_falls_back_when_the_students_grade_has_no_content(
+    client, fake_email, tree
+):
+    creds = register_and_verify(
+        client, fake_email, email="y9@example.com", name="Nine", year_level=9
+    )
+    token = login(client, creds).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    body = client.get("/content/my-course", headers=headers).json()
+    # No "Year 9" row — falls back to the earliest-seeded year level.
+    assert body["year_level"]["id"] == tree["year7_id"]
+    assert body["subject"]["title"] == "Mathematics"
+
+
+def test_my_course_subject_is_null_for_a_year_level_with_no_subject(
+    client, fake_email, db_session, tree
+):
+    creds = register_and_verify(
+        client, fake_email, email="y8@example.com", name="Eight", year_level=8
+    )
+    token = login(client, creds).json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    body = client.get("/content/my-course", headers=headers).json()
+    assert body["year_level"]["id"] == tree["year8_id"]
+    assert body["subject"] is None
+    assert body["units"] == []
+
+
 def test_unknown_parent_ids_are_404(client, fake_email, tree):
     headers = _student(client, fake_email)
     assert client.get("/content/year-levels/999/subjects", headers=headers).status_code == 404

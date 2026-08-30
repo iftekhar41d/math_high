@@ -105,6 +105,16 @@ class UnitOut(BaseModel):
     order: int
 
 
+class MyCourseOut(BaseModel):
+    """The signed-in student's course entry point: their year level, its first
+    Subject, and that Subject's Units in order — everything the Learn screen's
+    left rail needs in one call."""
+
+    year_level: YearLevelOut
+    subject: SubjectOut | None
+    units: list[UnitOut]
+
+
 class TopicRef(BaseModel):
     """A Topic as it appears in a list or as another Topic's prerequisite —
     enough to render a link, without the lecture body."""

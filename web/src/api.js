@@ -104,6 +104,10 @@ export const updateProfile = (payload) =>
   request('/profile', { method: 'PATCH', auth: true, body: JSON.stringify(payload) })
 
 // -- content --------------------------------------------------------------
+// The signed-in student's course entry point: { year_level, subject, units }
+// for their registered year level. Topics for a unit still come from getTopics.
+export const getMyCourse = () => request('/content/my-course', { auth: true })
+
 export const getYearLevels = () => request('/content/year-levels', { auth: true })
 
 export const getSubjects = (yearLevelId) =>

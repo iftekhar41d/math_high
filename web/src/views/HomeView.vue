@@ -44,7 +44,7 @@ h1 {
 .status-card {
   margin-top: 1.5rem;
   padding: 1rem 1.25rem;
-  background: var(--color-accent);
+  background: var(--color-surface);
   border-radius: 8px;
 }
 .status-card h2 {

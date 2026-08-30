@@ -103,7 +103,7 @@ async function reveal(q) {
   <section class="practice">
     <nav class="crumbs">
       <button type="button" class="link-button" @click="$router.back()">← Back</button>
-      <RouterLink :to="{ name: 'learn' }">All year levels</RouterLink>
+      <RouterLink :to="{ name: 'learn' }">Course</RouterLink>
     </nav>
 
     <p v-if="loading">Loading…</p>

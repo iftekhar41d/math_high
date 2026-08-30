@@ -30,6 +30,7 @@ from app.models import (
 )
 from app.schemas import (
     LectureContentOut,
+    MyCourseOut,
     SubjectOut,
     TopicDetail,
     TopicRef,
@@ -62,6 +63,57 @@ def list_year_levels(
     # `YearLevel` has no `order` column (per the ticket schema); id order is
     # seed order, which is chronological by grade.
     return list(db.scalars(select(YearLevel).order_by(YearLevel.id)))
+
+
+def _resolve_year_level(db: Session, grade: int) -> YearLevel | None:
+    """Map a student's numeric year level (7–12, from registration) to a
+    `YearLevel` content row. The only link is naming convention, tried in order:
+    the `year-<n>` slug, then a `Year <n>` name. Failing both, fall back to the
+    earliest-seeded year level so a student whose exact grade isn't authored yet
+    still lands on real content (the pilot ships Year 7 only)."""
+    for stmt in (
+        select(YearLevel).where(YearLevel.slug == f"year-{grade}"),
+        select(YearLevel).where(YearLevel.name == f"Year {grade}"),
+        select(YearLevel).order_by(YearLevel.id),
+    ):
+        match = db.scalar(stmt)
+        if match is not None:
+            return match
+    return None
+
+
+@router.get("/my-course", response_model=MyCourseOut)
+def my_course(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_verified_user),
+) -> MyCourseOut:
+    """The signed-in student's course: their year level, its first Subject, and
+    that Subject's Units in order. Topics for a Unit still come from
+    `GET /content/units/{unit_id}/topics`."""
+    year_level = _resolve_year_level(db, user.year_level)
+    if year_level is None:
+        raise _not_found("year level")
+
+    subject = db.scalar(
+        select(Subject)
+        .where(Subject.year_level_id == year_level.id)
+        .order_by(Subject.order)
+    )
+    units: list[Unit] = []
+    if subject is not None:
+        units = list(
+            db.scalars(
+                select(Unit)
+                .where(Unit.subject_id == subject.id)
+                .order_by(Unit.order)
+            )
+        )
+
+    return MyCourseOut(
+        year_level=YearLevelOut.model_validate(year_level),
+        subject=SubjectOut.model_validate(subject) if subject else None,
+        units=[UnitOut.model_validate(u) for u in units],
+    )
 
 
 @router.get(

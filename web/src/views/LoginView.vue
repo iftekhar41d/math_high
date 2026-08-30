@@ -22,7 +22,7 @@ async function submit() {
   submitting.value = true
   try {
     await auth.login(email.value, password.value)
-    router.push(route.query.redirect || '/profile')
+    router.push(route.query.redirect || '/learn')
   } catch (e) {
     if (e.status === 403) {
       // /auth/login only 403s when the email isn't verified yet.

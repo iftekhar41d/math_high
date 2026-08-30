@@ -273,7 +273,7 @@ practice, with `_active_session_id` linking each attempt to the open mixed run.
 `PracticeSession`; no migration (the `mixed` / `year_level` constants already
 existed). SPA: `web/src/views/MixedPracticeView.vue` + route
 `learn-mixed-practice` (`/learn/units/:unitId/mixed-practice`), reached from a
-CTA on the unit's topic list in `BrowseView.vue`.
+CTA above the unit's topic list in `CourseView.vue`.
 
 ### CAS equivalence (`app/cas/`)
 A pure module in the mould of `grading.py` — no DB, no clock, no network, no
@@ -398,6 +398,21 @@ rating (404 if the session isn't the caller's).
 also echoes the active `model_name` read-only; `PUT` edits only the caps (a
 `null` `global_monthly_cap_usd` clears the ceiling).
 
+### Course browsing (`app/routers/content.py` + `web/src/views/CourseView.vue`)
+`/content/...` (browser `/api/content/...`) walks the tree:
+`GET /year-levels`, `/year-levels/{id}/subjects`, `/subjects/{id}/units`,
+`/units/{id}/topics` (students see only `published` Topics; a `ContentAdmin` also
+sees drafts), and `GET /topics/{slug}` for the lecture (see Animations).
+`GET /content/my-course` is the SPA's entry point — `{year_level, subject,
+units}` for the signed-in student in one call. `User.year_level` is a bare grade
+int (7–12 from registration) with no FK to `year_levels`, so `_resolve_year_level`
+maps it by convention: `year-<n>` slug → `Year <n>` name → earliest-seeded row as
+a fallback (the pilot ships Year 7 only). `CourseView.vue` (routes `learn` at
+`/learn` and `learn-unit` at `/learn/units/:unitId`) renders a two-pane screen:
+left rail = the Subject title + its Units; right pane = the selected Unit's
+Topics with the mixed-practice / timed-quiz CTAs above them. The selected Unit
+lives in the URL; bare `/learn` auto-selects the first Unit via `router.replace`.
+
 ### Content seeding (`app/ingest/`)
 Course content is authored as repo files under `api/content/`: `manifest.yaml`
 describes the Year Level → Subject → Unit → Topic tree (with `order`,
@@ -466,8 +481,16 @@ The five canonical triage roles, each label string equal to its name: `needs-tri
 Single-context: one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
 
 ## Design System
-Always use these colors — never invent new hex values:
-- Background: #F9F7F7
-- Accent: #DBE2EF
-- Primary: #3F72AF
-- Dark/Text: #112D4E
+Always use these colors — never invent new hex values. They are the CSS custom
+properties in `web/src/style.css` `:root`; reference `var(--color-*)`, don't
+hard-code the hex:
+- Background (`--color-bg`): #F5F8F8 — cool off-white page background
+- Surface (`--color-surface`): #E4F4F4 — very light teal for raised panels /
+  cards that sit on the background
+- Accent (`--color-accent`): #CDECEC — light teal for subtle fills, borders,
+  callout backgrounds, secondary buttons
+- Primary (`--color-primary`): #0F7D7D — deep teal for links, headings, primary
+  button fills (AA-contrast on the background)
+- Dark/Text (`--color-text`): #0C3A3D — near-black teal-slate body text
+- Header (`--color-header`): #29C1C1 — bright teal reserved for the top nav bar,
+  which carries white (#FFF) text/icons

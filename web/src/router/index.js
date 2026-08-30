@@ -50,31 +50,20 @@ const routes = [
     component: () => import('../views/DashboardView.vue'),
     meta: { requiresAuth: true },
   },
-  // Course browsing: Year Level → Subject → Unit → Topic. One component drives
-  // every list level (it keys off the route name); the lecture reader is its
-  // own view.
+  // Course browsing: a two-pane screen (Subject + Units on the left, the
+  // selected Unit's Topics on the right). The selected Unit is carried in the
+  // URL; `/learn` bare auto-selects the first Unit. The lecture reader, practice
+  // and quiz flows are their own views.
   {
     path: '/learn',
     name: 'learn',
-    component: () => import('../views/BrowseView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/learn/years/:yearLevelId',
-    name: 'learn-year',
-    component: () => import('../views/BrowseView.vue'),
-    meta: { requiresAuth: true },
-  },
-  {
-    path: '/learn/subjects/:subjectId',
-    name: 'learn-subject',
-    component: () => import('../views/BrowseView.vue'),
+    component: () => import('../views/CourseView.vue'),
     meta: { requiresAuth: true },
   },
   {
     path: '/learn/units/:unitId',
     name: 'learn-unit',
-    component: () => import('../views/BrowseView.vue'),
+    component: () => import('../views/CourseView.vue'),
     meta: { requiresAuth: true },
   },
   {
@@ -137,7 +126,7 @@ router.beforeEach(async (to) => {
     return { name: 'login', query: { redirect: to.fullPath } }
   }
   if (to.meta.guestOnly && auth.isAuthenticated) {
-    return { name: 'profile' }
+    return { name: 'learn' }
   }
   return true
 })
