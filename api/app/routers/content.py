@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.animations import animation_out, visible_animations
 from app.auth.dependencies import require_verified_user
 from app.clock import Clock, get_clock
 from app.content_access import topic_is_published as _is_published
@@ -35,6 +36,7 @@ from app.schemas import (
     UnitOut,
     YearLevelOut,
 )
+from app.storage import MediaStorage, get_media_storage
 
 router = APIRouter(prefix="/content", tags=["content"])
 
@@ -118,6 +120,7 @@ def get_topic(
     slug: str,
     db: Session = Depends(get_db),
     clock: Clock = Depends(get_clock),
+    storage: MediaStorage = Depends(get_media_storage),
     user: User = Depends(require_verified_user),
 ) -> TopicDetail:
     topic = db.scalar(select(Topic).where(Topic.slug == slug))
@@ -131,6 +134,10 @@ def get_topic(
 
     prerequisites = topic.prerequisites
     lecture = topic.lecture_content
+    animations = [
+        animation_out(a, storage)
+        for a in visible_animations(topic, include_drafts=admin)
+    ]
     if not admin:
         prerequisites = [p for p in prerequisites if _is_published(p)]
         # Reading the lecture is the analytics event.
@@ -153,4 +160,5 @@ def get_topic(
             else None
         ),
         prerequisites=[TopicRef.model_validate(p) for p in prerequisites],
+        animations=animations,
     )

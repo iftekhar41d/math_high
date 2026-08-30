@@ -15,6 +15,7 @@ Ticket 06 adds the MentisQ tables (`MentisQSession`, `MentisQMessage`) and the
 the persisted practice run: `PracticeSession` + `PracticeSessionQuestion` and the
 `QuestionAttempt.practice_session_id` FK. Phase 2 ticket 06 (timed quiz mode)
 adds `Question.estimated_time_seconds` and `QuestionAttempt.after_time_limit`.
+Phase 2 ticket 10 adds `Animation` and the `animation_topics` many-to-many.
 """
 
 from __future__ import annotations
@@ -283,6 +284,13 @@ class Topic(Base):
         ),
         order_by="Topic.order",
     )
+    # Attached animations (many-to-many). Creation order; `app/animations.py`
+    # filters by audience so the student content router never returns a draft.
+    animations: Mapped[list[Animation]] = relationship(
+        secondary="animation_topics",
+        back_populates="topics",
+        order_by="Animation.id",
+    )
 
 
 class LectureContent(Base):
@@ -313,6 +321,65 @@ class TopicView(Base):
     topic_id: Mapped[int] = mapped_column(ForeignKey("topics.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, server_default=func.now(), index=True
+    )
+
+
+# -- animations -----------------------------------------------------------
+#
+# An `Animation` (rendered video + transcript) is first-class content, attached
+# many-to-many to Topics through `animation_topics` — "one or more Topics" per
+# `CONTEXT.md`, so there is no `topic_id` column here. Draft/published mirrors
+# `LectureContent`: a student sees `published` animations only, a `ContentAdmin`
+# also sees drafts (`app/animations.py`). Publishing requires a transcript
+# asset. `video_key` / `transcript_key` are keys into the `MediaStorage` seam
+# (`app/storage.py`), served straight off disk by nginx's `/media/` path. Rows
+# are created only through the ContentAdmin upload screen (Phase 2 ticket 11),
+# upserted by `slug`.
+
+animation_topics = Table(
+    "animation_topics",
+    Base.metadata,
+    Column(
+        "animation_id",
+        ForeignKey("animations.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "topic_id",
+        ForeignKey("topics.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
+
+
+class Animation(Base):
+    __tablename__ = "animations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    # Stable natural key the ContentAdmin upload screen upserts by.
+    slug: Mapped[str] = mapped_column(String, unique=True, index=True)
+    title: Mapped[str] = mapped_column(String)
+    description: Mapped[str] = mapped_column(
+        Text, default="", server_default=""
+    )
+    # Keys into the `MediaStorage` seam; the public URL is `/media/<key>`.
+    video_key: Mapped[str] = mapped_column(String)
+    # Null on a draft with no transcript yet — and a draft cannot be published
+    # until it is set (`app/animations.py::publish_animation`).
+    transcript_key: Mapped[str | None] = mapped_column(String, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    # CONTENT_DRAFT / CONTENT_PUBLISHED — a student sees `published` only.
+    status: Mapped[str] = mapped_column(String, default=CONTENT_DRAFT)
+    created_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, server_default=func.now()
+    )
+
+    topics: Mapped[list[Topic]] = relationship(
+        secondary=animation_topics,
+        back_populates="animations",
+        order_by="Topic.order",
     )
 
 

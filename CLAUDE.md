@@ -110,6 +110,26 @@ off local disk to S3/R2 later is one class. Phase 1 impl is `LocalMediaStorage`
 nginx serves `location /media/` straight off disk (`deploy/nginx.conf`) —
 those requests never reach the API. Injected via `Depends(get_media_storage)`.
 
+### Animations (`app/animations.py`)
+An `Animation` (`app/models.py`: `slug`, `title`, `description`, `video_key`,
+nullable `transcript_key`, nullable `duration_seconds`, `status` reusing
+`CONTENT_DRAFT` / `CONTENT_PUBLISHED`, `created_at`) is a rendered explainer
+video, attached **many-to-many** to Topics through the `animation_topics` Core
+table — "one or more Topics", so no `topic_id` column. `video_key` /
+`transcript_key` are keys into the `MediaStorage` seam. `app/animations.py` (in
+the mould of `content_access.py`) owns the rules and the student-facing view:
+`visible_animations(topic, *, include_drafts)` — `published` for a student, plus
+drafts for a `ContentAdmin`; `animation_out(animation, storage)` — the single
+place a row + its media keys become the `AnimationOut` DTO with `/media/<key>`
+URLs; and `publish_animation(animation)`, which flips `status` to `published`
+but raises `CannotPublish` when there is no `transcript_key` (a transcript is
+required to publish). `GET /content/topics/{slug}` returns the audience-filtered
+list in `TopicDetail.animations` (empty when none); the SPA renders an
+"Animations" section on the lecture page (`web/src/views/LectureView.vue`) with
+a `<video>` player, `<track>` captions, and a transcript link. Rows are created
+only through the ContentAdmin upload screen (Phase 2 ticket 11) — never the
+text-only manifest — upserted by `slug`.
+
 ### Auth (`app/auth/`)
 `AuthService` (`app/auth/service.py`) is the reusable core — registration, email
 verification, login, rotating refresh sessions, password reset, login rate

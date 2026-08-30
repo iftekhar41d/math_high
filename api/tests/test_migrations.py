@@ -31,6 +31,8 @@ def test_upgrade_head_on_a_fresh_database(tmp_path, monkeypatch):
         assert "performance_snapshots" in tables
         assert "practice_sessions" in tables
         assert "practice_session_questions" in tables
+        assert "animations" in tables
+        assert "animation_topics" in tables
         with engine.connect() as conn:
             version = conn.execute(
                 text("SELECT version_num FROM alembic_version")

@@ -125,6 +125,22 @@ class LectureContentOut(BaseModel):
     version: int
 
 
+class AnimationOut(BaseModel):
+    """An attached animation as the Topic page renders it. `video_url` /
+    `transcript_url` are resolved through the media seam (`/media/<key>`);
+    `transcript_url` is null only on a draft with no transcript yet, which a
+    student never sees (`status` is `draft` — a `ContentAdmin` preview)."""
+
+    id: int
+    slug: str
+    title: str
+    description: str
+    status: str
+    duration_seconds: int | None
+    video_url: str
+    transcript_url: str | None
+
+
 class TopicDetail(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -136,6 +152,9 @@ class TopicDetail(BaseModel):
     # Absent only for a draft Topic with no content yet (ContentAdmin preview).
     lecture_content: LectureContentOut | None
     prerequisites: list[TopicRef]
+    # Attached animations: published only for a student, plus drafts for a
+    # `ContentAdmin`. Empty when the Topic has none.
+    animations: list[AnimationOut]
 
 
 # -- practice & grading -------------------------------------------------------

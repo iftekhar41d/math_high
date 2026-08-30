@@ -39,6 +39,14 @@ const bodyHtml = computed(() =>
 const isDraft = computed(
   () => topic.value?.lecture_content?.status === 'draft',
 )
+const animations = computed(() => topic.value?.animations ?? [])
+
+function runtime(seconds) {
+  if (!seconds) return ''
+  const m = Math.floor(seconds / 60)
+  const s = String(seconds % 60).padStart(2, '0')
+  return `${m}:${s}`
+}
 </script>
 
 <template>
@@ -74,6 +82,40 @@ const isDraft = computed(
 
       <div v-if="bodyHtml" class="lecture-body" v-html="bodyHtml" />
       <p v-else>This topic has no lecture content yet.</p>
+
+      <section v-if="animations.length" class="animations">
+        <h2>Animations</h2>
+        <article v-for="a in animations" :key="a.id" class="animation">
+          <h3>
+            {{ a.title }}
+            <span v-if="runtime(a.duration_seconds)" class="animation-runtime">
+              {{ runtime(a.duration_seconds) }}
+            </span>
+            <span v-if="a.status === 'draft'" class="draft-badge">Draft</span>
+          </h3>
+          <p v-if="a.description" class="animation-desc">{{ a.description }}</p>
+          <video
+            class="animation-player"
+            controls
+            preload="metadata"
+            :src="a.video_url"
+          >
+            <track
+              v-if="a.transcript_url"
+              kind="captions"
+              srclang="en"
+              label="English"
+              :src="a.transcript_url"
+              default
+            />
+          </video>
+          <p v-if="a.transcript_url" class="animation-transcript">
+            <a :href="a.transcript_url" target="_blank" rel="noopener">
+              Open transcript
+            </a>
+          </p>
+        </article>
+      </section>
 
       <RouterLink
         class="btn practice-cta"
@@ -141,5 +183,49 @@ h1 {
   display: inline-block;
   margin-top: 2rem;
   text-decoration: none;
+}
+.animations {
+  margin-top: 2rem;
+}
+.animations > h2 {
+  color: var(--color-primary);
+  font-size: 1.2rem;
+  margin: 0 0 0.75rem;
+}
+.animation {
+  background: var(--color-accent);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.animation h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 1rem;
+  margin: 0 0 0.4rem;
+}
+.animation-runtime {
+  font-size: 0.8rem;
+  font-weight: 400;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+.animation-desc {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+}
+.animation-player {
+  display: block;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  border-radius: 6px;
+  background: var(--color-text);
+}
+.animation-transcript {
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
 }
 </style>
