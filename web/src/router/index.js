@@ -128,6 +128,10 @@ router.beforeEach(async (to) => {
   if (to.meta.guestOnly && auth.isAuthenticated) {
     return { name: 'learn' }
   }
+  // The landing page is for signed-out visitors; send students to their course.
+  if (to.name === 'home' && auth.isAuthenticated) {
+    return { name: 'learn' }
+  }
   return true
 })
 

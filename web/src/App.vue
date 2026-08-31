@@ -1,14 +1,19 @@
 <script setup>
 // App shell: a header with nav and the routed view. Screens live in src/views.
 import { computed } from 'vue'
-import { RouterLink, RouterView, useRouter } from 'vue-router'
+import { RouterLink, RouterView, useRoute, useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useAuthStore } from './stores/auth'
 import logoUrl from './assets/mentisq-logo.png'
 
 const auth = useAuthStore()
+const route = useRoute()
 const router = useRouter()
 const { user, isAuthenticated } = storeToRefs(auth)
+
+// The public landing page (`/`) brings its own header and full-bleed sections,
+// so the app shell steps aside for it.
+const isLanding = computed(() => route.name === 'home')
 
 const isSuperAdmin = computed(() => user.value?.role === 'super_admin')
 const isContentAdmin = computed(() => user.value?.role === 'content_admin')
@@ -21,13 +26,13 @@ async function signOut() {
 
 <template>
   <div class="app">
-    <header class="app-header">
+    <header v-if="!isLanding" class="app-header">
       <div class="app-header-inner">
         <RouterLink to="/" class="brand" aria-label="MentisQ home">
           <img :src="logoUrl" alt="MentisQ" class="brand-logo" />
         </RouterLink>
         <nav>
-          <RouterLink to="/" class="nav-home" aria-label="Home">
+          <RouterLink v-if="!isAuthenticated" to="/" class="nav-home" aria-label="Home">
             <svg class="nav-home-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path
                 d="M3 11.5 12 4l9 7.5M5.5 10v9a1 1 0 0 0 1 1H10v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5h3.5a1 1 0 0 0 1-1v-9"
@@ -39,7 +44,6 @@ async function signOut() {
           <RouterLink v-if="isAuthenticated" to="/mentisq">Ask MentisQ</RouterLink>
           <RouterLink v-if="isContentAdmin" to="/admin/animations">Animations</RouterLink>
           <RouterLink v-if="isSuperAdmin" to="/admin/mentisq">Settings</RouterLink>
-          <RouterLink to="/about">About</RouterLink>
         </nav>
         <div class="spacer" />
         <nav v-if="isAuthenticated" class="account">
@@ -63,7 +67,7 @@ async function signOut() {
       </div>
     </header>
 
-    <main class="app-main">
+    <main class="app-main" :class="{ 'app-main--bleed': isLanding }">
       <RouterView />
     </main>
   </div>
@@ -165,6 +169,12 @@ nav a.router-link-active {
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 1.5rem var(--content-gutter);
+}
+/* Landing page: no shell gutter or width cap — it manages its own layout. */
+.app-main--bleed {
+  max-width: none;
+  margin: 0;
+  padding: 0;
 }
 
 @media (max-width: 560px) {
